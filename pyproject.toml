@@ -10,4 +10,5 @@ dependencies = [
     "sb3-contrib>=2.7.0",
     "stable-baselines3>=2.7.0",
     "torch>=2.8.0",
+    "tqdm>=4.67.1",
 ]
