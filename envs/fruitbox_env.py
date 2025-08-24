@@ -10,8 +10,8 @@ from gymnasium import spaces
 
 @dataclass
 class FruitBoxConfig:
-    rows: int = 17
-    cols: int = 10
+    rows: int = 10
+    cols: int = 17
     reward_per_cell: float = 1.0
     max_steps: int = 500  # safety cap; original game uses time, not steps
 
