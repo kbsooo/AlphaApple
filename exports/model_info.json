@@ -1,0 +1,17 @@
+{
+  "model_name": "AlphaApple FruitBox AI",
+  "description": "PPO agent trained to play Korean fruit box puzzle game",
+  "architecture": "CNN + PPO",
+  "input_shape": [
+    17,
+    10,
+    1
+  ],
+  "output_shape": "action_logits + value",
+  "training_steps": 1000000,
+  "performance": {
+    "average_score": 77.0,
+    "vs_random": "+7.1%",
+    "vs_greedy": "+5.0%"
+  }
+}
