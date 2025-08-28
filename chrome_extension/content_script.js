@@ -9,6 +9,8 @@ class FruitBoxHelper {
         this.gameBoard = null;
         this.isEnabled = false;
         this.overlay = null;
+        this.gameDetected = false;
+        this.highlightedElements = [];
     }
 
     async initialize() {
@@ -69,9 +71,11 @@ class FruitBoxHelper {
             
             if (cells.length === 170) {  // 17x10 = 170
                 this.gameBoard = this.extractBoardData(cells, 17, 10);
+                this.gameDetected = true;
                 console.log('🍎 Board parsed successfully!', this.gameBoard);
             } else {
                 console.log(`🍎 Unexpected cell count: ${cells.length} (expected 170)`);
+                this.gameDetected = false;
             }
         } catch (error) {
             console.error('🍎 Board parsing failed:', error);
@@ -158,7 +162,10 @@ class FruitBoxHelper {
         `;
         
         button.addEventListener('click', () => this.toggleAI());
+        button.className = 'fruitbox-ai-button';
         document.body.appendChild(button);
+        
+        this.controlButton = button;
     }
 
     /**
@@ -274,7 +281,94 @@ class FruitBoxHelper {
             }
         }, {once: true});
     }
+
+    /**
+     * 하이라이트 제거
+     */
+    clearHighlights() {
+        this.highlightedElements.forEach(el => {
+            el.classList.remove('ai-highlight');
+        });
+        this.highlightedElements = [];
+    }
+
+    /**
+     * 직사각형 영역 하이라이트
+     */
+    highlightRectangle(rect) {
+        this.clearHighlights();
+        
+        // 실제 DOM 셀들에 하이라이트 적용 (간단한 예시)
+        try {
+            const cells = document.querySelectorAll('td, .cell, .grid-item');
+            for (let r = rect.r1; r <= rect.r2; r++) {
+                for (let c = rect.c1; c <= rect.c2; c++) {
+                    const cellIndex = r * 10 + c;
+                    if (cellIndex < cells.length) {
+                        const cell = cells[cellIndex];
+                        cell.classList.add('ai-highlight');
+                        this.highlightedElements.push(cell);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('🍎 Highlight failed:', error);
+        }
+    }
 }
+
+// 전역 helper 인스턴스
+let globalHelper = null;
+
+// 팝업과의 메시지 통신
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!globalHelper) {
+        sendResponse({gameDetected: false, aiEnabled: false, message: "Helper not initialized"});
+        return;
+    }
+
+    switch(request.action) {
+        case 'getStatus':
+            sendResponse({
+                gameDetected: globalHelper.gameDetected,
+                aiEnabled: globalHelper.isEnabled,
+                message: globalHelper.gameDetected ? 
+                    (globalHelper.isEnabled ? "AI Active" : "AI Ready") : 
+                    "Game not detected"
+            });
+            break;
+            
+        case 'enableAI':
+            globalHelper.isEnabled = true;
+            globalHelper.showRecommendation();
+            sendResponse({
+                gameDetected: globalHelper.gameDetected,
+                aiEnabled: true,
+                message: "AI Enabled"
+            });
+            break;
+            
+        case 'disableAI':
+            globalHelper.isEnabled = false;
+            globalHelper.overlay.style.display = 'none';
+            globalHelper.clearHighlights();
+            sendResponse({
+                gameDetected: globalHelper.gameDetected,
+                aiEnabled: false,
+                message: "AI Disabled"
+            });
+            break;
+            
+        case 'refreshBoard':
+            globalHelper.detectGameBoard();
+            sendResponse({
+                gameDetected: globalHelper.gameDetected,
+                aiEnabled: globalHelper.isEnabled,
+                message: globalHelper.gameDetected ? "Board refreshed" : "No game found"
+            });
+            break;
+    }
+});
 
 // 페이지 로드 시 자동 초기화
 (async () => {
@@ -287,6 +381,6 @@ class FruitBoxHelper {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     // FruitBox 헬퍼 초기화
-    const helper = new FruitBoxHelper();
-    await helper.initialize();
+    globalHelper = new FruitBoxHelper();
+    await globalHelper.initialize();
 })();

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        .title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }
+        .subtitle {
+            font-size: 12px;
+            color: #666;
+        }
+        .status {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status.active {
+            background: #e8f5e8;
+            border-left: 3px solid #4CAF50;
+        }
+        .status.inactive {
+            background: #fef5e8;
+            border-left: 3px solid #FF9800;
+        }
+        .controls {
+            margin-top: 15px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .primary-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .secondary-btn {
+            background: #2196F3;
+            color: white;
+        }
+        .info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+        .performance {
+            background: #f0f8ff;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">🍎</div>
+        <div class="title">AlphaApple</div>
+        <div class="subtitle">FruitBox AI Assistant</div>
+    </div>
+
+    <div id="status" class="status inactive">
+        <strong>Status:</strong> <span id="status-text">Detecting game...</span>
+    </div>
+
+    <div class="performance">
+        <strong>AI Performance:</strong><br>
+        • Average Score: 77.0<br>
+        • vs Random: +7.1%<br>
+        • vs Greedy: +5.0%
+    </div>
+
+    <div class="controls">
+        <button id="toggle-ai" class="primary-btn">🤖 Enable AI Assistant</button>
+        <button id="refresh-board" class="secondary-btn">🔄 Refresh Board</button>
+        <button id="help" class="secondary-btn">❓ How to Use</button>
+    </div>
+
+    <div class="info">
+        <strong>How to use:</strong><br>
+        1. Visit a FruitBox game website<br>
+        2. Click "Enable AI Assistant"<br>
+        3. AI will highlight best moves<br>
+        4. Click suggested rectangles to play
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

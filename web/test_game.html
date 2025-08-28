@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FruitBox 테스트 게임 - Chrome 확장 테스트용</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        
+        .game-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .game-board {
+            display: inline-block;
+            border: 3px solid #333;
+            border-spacing: 0;
+            margin: 20px;
+        }
+        
+        .game-board td {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ccc;
+            text-align: center;
+            vertical-align: middle;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .game-board td:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .selected {
+            background-color: #4CAF50 !important;
+            color: white !important;
+        }
+        
+        .score {
+            font-size: 24px;
+            margin: 10px;
+            font-weight: bold;
+        }
+        
+        .instructions {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .chrome-extension-note {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🍎 FruitBox 테스트 게임</h1>
+    
+    <div class="chrome-extension-note">
+        <strong>🔧 Chrome 확장 테스트용 페이지</strong><br>
+        이 페이지는 AlphaApple Chrome 확장을 테스트하기 위한 샘플 게임입니다.<br>
+        확장을 설치한 후 이 페이지에서 AI Assistant를 테스트해보세요!
+    </div>
+
+    <div class="game-container">
+        <div class="score">점수: <span id="score">0</span></div>
+        
+        <table class="game-board" id="gameBoard">
+            <!-- 17x10 게임 보드가 JavaScript로 생성됩니다 -->
+        </table>
+        
+        <div>
+            <button onclick="generateNewBoard()">🎲 새 게임</button>
+            <button onclick="clearSelection()">🧹 선택 취소</button>
+            <button onclick="showHint()">💡 힌트</button>
+        </div>
+    </div>
+
+    <div class="instructions">
+        <h3>📖 게임 규칙</h3>
+        <ul>
+            <li>17×10 격자에서 직사각형을 드래그해서 선택</li>
+            <li>선택한 직사각형 안의 숫자 합이 <strong>정확히 10</strong>이면 성공</li>
+            <li>성공하면 해당 영역 제거, 제거한 칸 수만큼 점수 획득</li>
+            <li>더 이상 제거할 수 없으면 게임 종료</li>
+        </ul>
+        
+        <h3>🤖 AI Assistant 사용법</h3>
+        <ol>
+            <li>Chrome 확장이 설치되어 있는지 확인</li>
+            <li>페이지 로드 후 우하단 <strong>"🍎 AI Assistant"</strong> 버튼 클릭</li>
+            <li>AI가 추천하는 직사각형이 <strong>금색으로 하이라이트</strong>됨</li>
+            <li>추천 영역을 클릭하거나 드래그해서 선택</li>
+            <li>게임 진행 후 다시 AI 버튼 클릭해서 다음 수 추천 받기</li>
+        </ol>
+    </div>
+
+    <script>
+        let gameBoard = [];
+        let score = 0;
+        let isSelecting = false;
+        let startCell = null;
+        let selectedCells = [];
+
+        // 게임 보드 초기화
+        function initializeGame() {
+            generateBoard();
+            renderBoard();
+            updateScore();
+        }
+
+        // 17x10 보드 생성 (합이 10인 직사각형들이 존재하도록)
+        function generateBoard() {
+            gameBoard = Array(17).fill().map(() => 
+                Array(10).fill().map(() => Math.floor(Math.random() * 9) + 1)
+            );
+        }
+
+        // DOM에 보드 렌더링
+        function renderBoard() {
+            const table = document.getElementById('gameBoard');
+            table.innerHTML = '';
+            
+            for (let r = 0; r < 17; r++) {
+                const row = table.insertRow();
+                for (let c = 0; c < 10; c++) {
+                    const cell = row.insertCell();
+                    cell.textContent = gameBoard[r][c] || '';
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    
+                    // 빈 칸 스타일
+                    if (gameBoard[r][c] === 0) {
+                        cell.style.backgroundColor = '#f0f0f0';
+                        cell.style.color = '#ccc';
+                    }
+                    
+                    // 마우스 이벤트
+                    cell.addEventListener('mousedown', startSelection);
+                    cell.addEventListener('mouseenter', updateSelection);
+                    cell.addEventListener('mouseup', endSelection);
+                }
+            }
+        }
+
+        // 드래그 선택 시작
+        function startSelection(e) {
+            isSelecting = true;
+            startCell = {
+                row: parseInt(e.target.dataset.row),
+                col: parseInt(e.target.dataset.col)
+            };
+            clearSelection();
+            updateSelectionDisplay(startCell, startCell);
+        }
+
+        // 드래그 중 선택 영역 업데이트  
+        function updateSelection(e) {
+            if (!isSelecting) return;
+            
+            const endCell = {
+                row: parseInt(e.target.dataset.row),
+                col: parseInt(e.target.dataset.col)
+            };
+            
+            updateSelectionDisplay(startCell, endCell);
+        }
+
+        // 선택 완료
+        function endSelection(e) {
+            if (!isSelecting) return;
+            
+            isSelecting = false;
+            
+            const endCell = {
+                row: parseInt(e.target.dataset.row), 
+                col: parseInt(e.target.dataset.col)
+            };
+            
+            processSelection(startCell, endCell);
+        }
+
+        // 선택 영역 처리
+        function processSelection(start, end) {
+            const r1 = Math.min(start.row, end.row);
+            const r2 = Math.max(start.row, end.row);
+            const c1 = Math.min(start.col, end.col);
+            const c2 = Math.max(start.col, end.col);
+            
+            // 선택 영역 합계 계산
+            let sum = 0;
+            let validSelection = true;
+            
+            for (let r = r1; r <= r2; r++) {
+                for (let c = c1; c <= c2; c++) {
+                    if (gameBoard[r][c] === 0) {
+                        validSelection = false;
+                        break;
+                    }
+                    sum += gameBoard[r][c];
+                }
+                if (!validSelection) break;
+            }
+            
+            // 합이 10이면 성공
+            if (validSelection && sum === 10) {
+                // 영역 제거
+                const cellsCleared = (r2 - r1 + 1) * (c2 - c1 + 1);
+                for (let r = r1; r <= r2; r++) {
+                    for (let c = c1; c <= c2; c++) {
+                        gameBoard[r][c] = 0;
+                    }
+                }
+                
+                score += cellsCleared;
+                updateScore();
+                renderBoard();
+                
+                alert(`✅ 성공! ${cellsCleared}칸 제거, +${cellsCleared}점`);
+            } else {
+                alert(`❌ 실패! 합계: ${sum} (10이 되어야 함)`);
+            }
+            
+            clearSelection();
+        }
+
+        // 선택 영역 시각적 표시
+        function updateSelectionDisplay(start, end) {
+            clearSelection();
+            
+            const r1 = Math.min(start.row, end.row);
+            const r2 = Math.max(start.row, end.row);
+            const c1 = Math.min(start.col, end.col);
+            const c2 = Math.max(start.col, end.col);
+            
+            for (let r = r1; r <= r2; r++) {
+                for (let c = c1; c <= c2; c++) {
+                    const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                    if (cell) {
+                        cell.classList.add('selected');
+                        selectedCells.push(cell);
+                    }
+                }
+            }
+        }
+
+        // 선택 초기화
+        function clearSelection() {
+            selectedCells.forEach(cell => cell.classList.remove('selected'));
+            selectedCells = [];
+        }
+
+        // 점수 업데이트
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+        }
+
+        // 새 게임
+        function generateNewBoard() {
+            score = 0;
+            generateBoard();
+            renderBoard();
+            updateScore();
+        }
+
+        // 힌트 (유효한 직사각형 하나 찾아주기)
+        function showHint() {
+            for (let r1 = 0; r1 < 17; r1++) {
+                for (let r2 = r1; r2 < 17; r2++) {
+                    for (let c1 = 0; c1 < 10; c1++) {
+                        for (let c2 = c1; c2 < 10; c2++) {
+                            let sum = 0;
+                            let valid = true;
+                            
+                            for (let r = r1; r <= r2; r++) {
+                                for (let c = c1; c <= c2; c++) {
+                                    if (gameBoard[r][c] === 0) {
+                                        valid = false;
+                                        break;
+                                    }
+                                    sum += gameBoard[r][c];
+                                }
+                                if (!valid) break;
+                            }
+                            
+                            if (valid && sum === 10) {
+                                alert(`💡 힌트: (${r1+1},${c1+1}) ~ (${r2+1},${c2+1}) 선택해보세요!`);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            alert('😅 더 이상 유효한 수가 없습니다!');
+        }
+
+        // 게임 초기화
+        document.addEventListener('DOMContentLoaded', initializeGame);
+    </script>
+</body>
+</html>

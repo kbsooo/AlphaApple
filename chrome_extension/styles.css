@@ -1,0 +1,109 @@
+/* styles.css - Chrome 확장용 스타일 */
+
+/* AI 추천 오버레이 스타일 */
+#fruitbox-ai-overlay {
+    position: fixed !important;
+    top: 10px !important;
+    right: 10px !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    padding: 15px !important;
+    border-radius: 12px !important;
+    font-family: 'Segoe UI', Arial, sans-serif !important;
+    z-index: 999999 !important;
+    max-width: 280px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+    border: 2px solid rgba(255,255,255,0.1) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+/* AI 버튼 스타일 */
+.fruitbox-ai-button {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    background: linear-gradient(45deg, #4CAF50, #45a049) !important;
+    color: white !important;
+    border: none !important;
+    padding: 12px 20px !important;
+    border-radius: 25px !important;
+    cursor: pointer !important;
+    z-index: 999998 !important;
+    font-weight: bold !important;
+    font-size: 14px !important;
+    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4) !important;
+    transition: all 0.3s ease !important;
+}
+
+.fruitbox-ai-button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(76, 175, 80, 0.6) !important;
+}
+
+.fruitbox-ai-button.disabled {
+    background: #f44336 !important;
+    box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4) !important;
+}
+
+/* 추천 직사각형 하이라이트 */
+.ai-highlight {
+    outline: 3px solid #FFD700 !important;
+    outline-offset: -3px !important;
+    animation: pulse 2s infinite !important;
+    box-shadow: 0 0 15px #FFD700 !important;
+    position: relative !important;
+}
+
+.ai-highlight::after {
+    content: "🎯 AI Pick" !important;
+    position: absolute !important;
+    top: -25px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    background: #FFD700 !important;
+    color: black !important;
+    padding: 2px 8px !important;
+    border-radius: 10px !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+    white-space: nowrap !important;
+    z-index: 999997 !important;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* 게임 보드 개선 (감지되었을 때) */
+.detected-board {
+    border: 2px dashed #4CAF50 !important;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3) !important;
+}
+
+/* 수동 선택 모드 스타일 */
+.manual-selection-mode * {
+    cursor: crosshair !important;
+}
+
+.manual-selection-candidate {
+    outline: 2px dashed #2196F3 !important;
+    outline-offset: -2px !important;
+}
+
+/* 로딩 애니메이션 */
+.ai-loading {
+    display: inline-block !important;
+    width: 12px !important;
+    height: 12px !important;
+    border: 2px solid #ffffff !important;
+    border-top: 2px solid transparent !important;
+    border-radius: 50% !important;
+    animation: spin 1s linear infinite !important;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

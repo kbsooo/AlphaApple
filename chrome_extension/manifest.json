@@ -10,7 +10,7 @@
   
   "content_scripts": [
     {
-      "matches": ["*://*.example.com/*", "*://fruitbox-game.com/*"],
+      "matches": ["*://*/*", "file://*/*"],
       "js": [
         "libs/ort-web.min.js",
         "fruitbox_ai.js", 
