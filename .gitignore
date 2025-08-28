@@ -12,3 +12,6 @@ wheels/
 temp/
 
 temp.py
+
+# Session summaries and temporary documentation
+SESSION_SUMMARY_*.md
