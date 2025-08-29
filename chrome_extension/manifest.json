@@ -1,35 +1,41 @@
 {
   "manifest_version": 3,
-  "name": "AlphaApple - FruitBox AI Assistant",
-  "version": "1.0.0",
-  "description": "AI assistant for Korean FruitBox puzzle game",
+  "name": "AlphaApple - AI Game Assistant", 
+  "version": "1.0.1",
+  "description": "AI-powered assistant for FruitBox puzzle games with CreateJS detection",
   
   "permissions": [
     "activeTab"
   ],
   
+  "web_accessible_resources": [
+    {
+      "resources": ["models/*", "libs/*", "*.js"],
+      "matches": ["*://*/*"]
+    }
+  ],
+  
   "content_scripts": [
     {
-      "matches": ["*://*/*", "file://*/*"],
+      "matches": ["*://*/*"],
       "js": [
         "libs/ort-web.min.js",
         "fruitbox_ai.js", 
         "content_script.js"
       ],
-      "css": ["styles.css"],
       "run_at": "document_end"
     }
   ],
-  
-  "web_accessible_resources": [
-    {
-      "resources": ["models/fruitbox_ppo.onnx"],
-      "matches": ["*://*/*"]
-    }
-  ],
-  
+
   "action": {
     "default_popup": "popup.html",
-    "default_title": "FruitBox AI Assistant"
+    "default_title": "AlphaApple AI Assistant"
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png", 
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }
