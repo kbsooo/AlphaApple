@@ -17,22 +17,99 @@ class FruitBoxHelper {
         try {
             console.log('🍎 AlphaApple: Initializing FruitBox AI...');
             
-            // AI 모델 로드
-            this.ai = new FruitBoxAI(chrome.runtime.getURL('models/fruitbox_ppo.onnx'));
-            await this.ai.initialize();
-            
-            // 게임 보드 감지
-            this.detectGameBoard();
-            
-            // UI 추가
+            // UI 먼저 생성 (AI 로딩과 무관하게)
             this.createOverlay();
             this.addControlButton();
             
-            console.log('🍎 AlphaApple: Ready!');
+            // AI 모델 로드 시도 (실패해도 계속 진행)
+            try {
+                this.ai = new FruitBoxAI(chrome.runtime.getURL('models/fruitbox_ppo.onnx'));
+                await this.ai.initialize();
+                console.log('✅ AI model loaded successfully');
+            } catch (aiError) {
+                console.warn('⚠️ AI model failed to load, running in board-detection-only mode:', aiError.message);
+                this.ai = null;
+            }
+            
+            // 게임 보드 감지 (초기 시도)
+            this.detectGameBoard();
+            
+            // Play 버튼 클릭 감지를 위한 리스너 추가
+            this.setupGameStartListener();
+            
+            console.log('🍎 AlphaApple: Ready! (AI:', this.ai ? 'Enabled' : 'Disabled', ')');
             
         } catch (error) {
-            console.error('🍎 AlphaApple: Initialization failed:', error);
+            console.error('🍎 AlphaApple: Critical initialization failed:', error);
+            // 최소한의 UI라도 표시
+            this.createOverlay();
+            this.showError('Initialization failed: ' + error.message);
         }
+    }
+
+    /**
+     * Play 버튼 클릭 감지 및 게임 시작 후 재감지
+     */
+    setupGameStartListener() {
+        console.log('🍎 Setting up game start detection...');
+        
+        // Play 버튼들 감지
+        const checkForPlayButton = () => {
+            const playSelectors = [
+                'button[onclick*="play"]', 
+                'button[onclick*="start"]', 
+                '.play-button', 
+                '#play-btn',
+                'input[value*="Play"]',
+                'a[href*="play"]'
+            ];
+            
+            for (const selector of playSelectors) {
+                const playButton = document.querySelector(selector);
+                if (playButton) {
+                    console.log('🍎 Found play button:', selector);
+                    playButton.addEventListener('click', () => {
+                        console.log('🍎 Play button clicked! Re-detecting board in 3 seconds...');
+                        setTimeout(() => this.detectGameBoard(), 3000);
+                        setTimeout(() => this.detectGameBoard(), 6000); // 두 번째 시도
+                    });
+                }
+            }
+        };
+        
+        checkForPlayButton();
+        
+        // DOM 변경 감지 (새로운 요소 추가 시)
+        const observer = new MutationObserver((mutations) => {
+            let shouldRedetect = false;
+            
+            mutations.forEach(mutation => {
+                if (mutation.addedNodes.length > 0) {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1) { // Element node
+                            // 새로운 캔버스나 테이블이 추가되면
+                            if (node.tagName === 'CANVAS' || node.tagName === 'TABLE') {
+                                shouldRedetect = true;
+                            }
+                            // 또는 많은 요소가 한번에 추가되면 (게임 로딩)
+                            if (node.children && node.children.length > 10) {
+                                shouldRedetect = true;
+                            }
+                        }
+                    });
+                }
+            });
+            
+            if (shouldRedetect && !this.gameDetected) {
+                console.log('🍎 DOM changes detected, re-detecting board...');
+                setTimeout(() => this.detectGameBoard(), 1000);
+            }
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
     }
 
     /**
@@ -644,19 +721,44 @@ class FruitBoxHelper {
     }
 
     /**
-     * AI 추천 표시
+     * AI 추천 표시 (null 안전)
      */
     async showRecommendation() {
-        if (!this.gameBoard || !this.ai) {
+        // Overlay null 체크
+        if (!this.overlay) {
+            console.error('🍎 Overlay not initialized, creating it now');
+            this.createOverlay();
+            if (!this.overlay) {
+                console.error('🍎 Failed to create overlay');
+                return;
+            }
+        }
+
+        // 게임 보드나 AI가 없는 경우
+        if (!this.gameBoard) {
             this.overlay.innerHTML = `
                 <div>🍎 <strong>AlphaApple</strong></div>
                 <div>❌ Game board not detected</div>
-                <div><small>Try refreshing the page</small></div>
+                <div><small>Try clicking Play button</small></div>
+                <button onclick="window.globalHelper.detectGameBoard()">🔄 Detect Board</button>
             `;
             this.overlay.style.display = 'block';
             return;
         }
 
+        if (!this.ai) {
+            this.overlay.innerHTML = `
+                <div>🍎 <strong>AlphaApple</strong></div>
+                <div>✅ Board detected: ${this.gameBoard.length}x${this.gameBoard[0]?.length || 0}</div>
+                <div>⚠️ AI disabled (WASM load failed)</div>
+                <div><small>Board detection working!</small></div>
+                <button onclick="window.globalHelper.detectGameBoard()">🔄 Refresh</button>
+            `;
+            this.overlay.style.display = 'block';
+            return;
+        }
+
+        // AI 분석 시작
         this.overlay.innerHTML = `
             <div>🍎 <strong>AlphaApple</strong></div>
             <div>🤔 Analyzing board...</div>
@@ -677,17 +779,39 @@ class FruitBoxHelper {
             `;
             
             // 새로고침 버튼
-            document.getElementById('refresh-ai').addEventListener('click', () => {
-                this.detectGameBoard();
-                this.showRecommendation();
-            });
+            const refreshBtn = document.getElementById('refresh-ai');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => {
+                    this.detectGameBoard();
+                    this.showRecommendation();
+                });
+            }
             
         } catch (error) {
             this.overlay.innerHTML = `
                 <div>🍎 <strong>AlphaApple</strong></div>
                 <div>❌ AI prediction failed</div>
                 <div><small>${error.message}</small></div>
+                <button onclick="window.globalHelper.detectGameBoard()">🔄 Try Again</button>
             `;
+        }
+    }
+
+    /**
+     * 에러 표시 (새 함수)
+     */
+    showError(message) {
+        if (!this.overlay) {
+            this.createOverlay();
+        }
+        
+        if (this.overlay) {
+            this.overlay.innerHTML = `
+                <div>🍎 <strong>AlphaApple</strong></div>
+                <div>❌ Error</div>
+                <div><small>${message}</small></div>
+            `;
+            this.overlay.style.display = 'block';
         }
     }
 
