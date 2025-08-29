@@ -36,12 +36,22 @@ class FruitBoxHelper {
     }
 
     /**
-     * 게임 보드 DOM 요소 감지 및 파싱
+     * 게임 보드 감지 - CreateJS 우선, DOM 백업
      */
     detectGameBoard() {
-        console.log('🍎 Starting board detection...');
+        console.log('🍎 Starting enhanced board detection...');
         
-        // 1단계: 일반적인 선택자들 시도
+        // 1단계: CreateJS 게임 데이터 직접 추출 시도
+        const createJSBoard = this.extractFromCreateJS();
+        if (createJSBoard) {
+            console.log('🍎 Found game board via CreateJS!');
+            this.gameBoard = createJSBoard;
+            this.gameDetected = true;
+            this.showBoardPreview(createJSBoard, 'CreateJS');
+            return;
+        }
+        
+        // 2단계: 일반적인 DOM 선택자들 시도
         const commonSelectors = [
             '.game-board', '.fruit-grid', '.puzzle-board', '#gameBoard',
             'table.game', '.grid', '#game-container', '.board-container',
@@ -56,9 +66,294 @@ class FruitBoxHelper {
             }
         }
 
-        // 2단계: 더 광범위한 검색
+        // 3단계: 더 광범위한 검색
         console.log('🍎 Trying comprehensive detection...');
         this.tryComprehensiveDetection();
+    }
+
+    /**
+     * CreateJS에서 게임 보드 직접 추출
+     */
+    extractFromCreateJS() {
+        console.log('🍎 === CreateJS 게임 구조 분석 중... ===');
+        const results = {
+            potentialBoards: [],
+            analysis: {}
+        };
+
+        // 1. CreateJS Stage 분석
+        if (window.stage) {
+            console.log('✅ window.stage 발견!');
+            console.log('Stage type:', stage.constructor.name);
+            console.log('Stage children count:', stage.children?.length || 0);
+            
+            results.analysis.stage = {
+                type: stage.constructor.name,
+                childrenCount: stage.children?.length || 0
+            };
+
+            // Stage children 상세 분석
+            if (stage.children) {
+                stage.children.forEach((child, i) => {
+                    console.log(`  Stage Child ${i}: ${child.constructor.name}`);
+                    const boardData = this.searchObjectForBoard(child, `stage.children[${i}]`, 0, 3);
+                    if (boardData) {
+                        results.potentialBoards.push(boardData);
+                    }
+                });
+            }
+        }
+
+        // 2. ExportRoot 분석
+        if (window.exportRoot) {
+            console.log('✅ window.exportRoot 발견!');
+            console.log('ExportRoot type:', exportRoot.constructor.name);
+            
+            results.analysis.exportRoot = { type: exportRoot.constructor.name };
+            
+            // ExportRoot 객체 탐색
+            const boardData = this.searchObjectForBoard(exportRoot, 'exportRoot', 0, 4);
+            if (boardData) {
+                results.potentialBoards.push(boardData);
+            }
+        }
+
+        // 3. 게임 관련 전역 변수 찾기
+        const gameKeywords = ['board', 'grid', 'map', 'level', 'puzzle', 'fruit', 'data', 'game'];
+        
+        for (const prop in window) {
+            const lowerProp = prop.toLowerCase();
+            for (const keyword of gameKeywords) {
+                if (lowerProp.includes(keyword)) {
+                    try {
+                        const value = window[prop];
+                        if (value && typeof value === 'object' && Array.isArray(value)) {
+                            if (this.couldBeGameBoard(value)) {
+                                console.log(`🎯 게임 보드 후보 발견! window.${prop}`);
+                                results.potentialBoards.push({
+                                    path: `window.${prop}`,
+                                    data: value,
+                                    confidence: this.rateBoardQuality(value),
+                                    size: `${value.length}x${value[0]?.length || 0}`
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // 접근 불가
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 가장 좋은 후보 선택
+        if (results.potentialBoards.length > 0) {
+            results.potentialBoards.sort((a, b) => b.confidence - a.confidence);
+            const best = results.potentialBoards[0];
+            
+            console.log(`🍎 최고 후보: ${best.path} (confidence: ${best.confidence}, size: ${best.size})`);
+            console.log('보드 데이터:', best.data);
+            
+            return best.data;
+        }
+
+        console.log('❌ CreateJS에서 게임 보드를 찾지 못했습니다');
+        return null;
+    }
+
+    /**
+     * 객체를 재귀적으로 탐색해서 보드 데이터 찾기
+     */
+    searchObjectForBoard(obj, path, depth = 0, maxDepth = 3) {
+        if (!obj || depth > maxDepth) return null;
+
+        try {
+            // 직접 배열인지 확인
+            if (Array.isArray(obj)) {
+                if (this.couldBeGameBoard(obj)) {
+                    console.log(`🎯 보드 후보 발견: ${path}`);
+                    return {
+                        path,
+                        data: obj,
+                        confidence: this.rateBoardQuality(obj),
+                        size: `${obj.length}x${obj[0]?.length || 0}`
+                    };
+                }
+            }
+
+            // 객체의 프로퍼티들 탐색
+            for (const key in obj) {
+                if (key.length > 20) continue; // 너무 긴 키는 스킵
+                
+                try {
+                    const value = obj[key];
+                    
+                    // 배열인지 확인
+                    if (Array.isArray(value)) {
+                        if (this.couldBeGameBoard(value)) {
+                            console.log(`🎯 보드 후보 발견: ${path}.${key}`);
+                            return {
+                                path: `${path}.${key}`,
+                                data: value,
+                                confidence: this.rateBoardQuality(value),
+                                size: `${value.length}x${value[0]?.length || 0}`
+                            };
+                        }
+                    }
+                    // 객체면 재귀 탐색
+                    else if (value && typeof value === 'object' && depth < maxDepth) {
+                        const result = this.searchObjectForBoard(value, `${path}.${key}`, depth + 1, maxDepth);
+                        if (result) return result;
+                    }
+                } catch (e) {
+                    // 접근 불가능한 프로퍼티 스킵
+                }
+            }
+        } catch (e) {
+            console.warn(`🍎 Error searching ${path}:`, e);
+        }
+
+        return null;
+    }
+
+    /**
+     * 배열이 게임 보드일 가능성 체크
+     */
+    couldBeGameBoard(arr) {
+        if (!Array.isArray(arr) || arr.length === 0) return false;
+        
+        // 2D 배열이고 적당한 크기인지 체크
+        const firstRow = arr[0];
+        if (!Array.isArray(firstRow)) return false;
+        
+        const rows = arr.length;
+        const cols = firstRow.length;
+        
+        // 게임 보드 같은 크기인지 (8x8 ~ 25x20 정도)
+        if (rows < 8 || rows > 25 || cols < 8 || cols > 20) return false;
+        
+        // 모든 행이 같은 길이인지 체크
+        for (let i = 1; i < Math.min(5, rows); i++) {
+            if (!Array.isArray(arr[i]) || arr[i].length !== cols) return false;
+        }
+        
+        // 숫자 데이터인지 체크
+        let numberCells = 0;
+        let totalCells = 0;
+        
+        for (let r = 0; r < Math.min(3, rows); r++) {
+            const row = arr[r];
+            for (let c = 0; c < Math.min(5, cols); c++) {
+                totalCells++;
+                const cell = row[c];
+                if (typeof cell === 'number' && cell >= 0 && cell <= 9) {
+                    numberCells++;
+                }
+            }
+        }
+        
+        const ratio = numberCells / totalCells;
+        return ratio >= 0.6; // 60% 이상이 유효한 숫자
+    }
+
+    /**
+     * 보드 품질 평가 (더 좋은 후보 선택용)
+     */
+    rateBoardQuality(board) {
+        let score = 0;
+        
+        // 크기 점수 - 17x10이 이상적
+        if (board.length === 17) score += 20;
+        else if (board.length >= 15 && board.length <= 20) score += 10;
+        else if (board.length >= 10 && board.length <= 25) score += 5;
+        
+        if (board[0] && board[0].length === 10) score += 20;
+        else if (board[0] && board[0].length >= 8 && board[0].length <= 12) score += 10;
+        else if (board[0] && board[0].length >= 6 && board[0].length <= 15) score += 5;
+
+        // 숫자 분포 점수
+        const allNumbers = [];
+        board.forEach(row => {
+            if (Array.isArray(row)) {
+                row.forEach(cell => {
+                    if (typeof cell === 'number' && cell >= 0 && cell <= 9) {
+                        allNumbers.push(cell);
+                    }
+                });
+            }
+        });
+
+        const uniqueNumbers = new Set(allNumbers).size;
+        if (uniqueNumbers >= 7) score += 15; // 1-9 범위의 다양한 숫자
+        else if (uniqueNumbers >= 5) score += 10;
+        else if (uniqueNumbers >= 3) score += 5;
+
+        // 데이터 밀도 점수 (0이 아닌 셀의 비율)
+        const nonZeroCells = allNumbers.filter(n => n > 0).length;
+        const totalCells = board.length * (board[0]?.length || 0);
+        const density = nonZeroCells / totalCells;
+        
+        if (density >= 0.3 && density <= 0.8) score += 10; // 적당한 밀도
+        else if (density >= 0.1 && density <= 0.9) score += 5;
+
+        return score;
+    }
+
+    /**
+     * 보드 미리보기 표시
+     */
+    showBoardPreview(board, source) {
+        let existing = document.getElementById('board-preview-display');
+        if (existing) existing.remove();
+
+        const display = document.createElement('div');
+        display.id = 'board-preview-display';
+        display.style.cssText = `
+            position: fixed;
+            top: 60px;
+            left: 20px;
+            background: rgba(0, 100, 0, 0.95);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            z-index: 999998;
+            font-family: monospace;
+            font-size: 10px;
+            line-height: 1.2;
+            max-width: 280px;
+            border: 2px solid #4CAF50;
+        `;
+
+        let content = `🍎 게임 보드 감지 성공! (${source})\n크기: ${board.length}x${board[0]?.length || 0}\n\n`;
+        
+        // 처음 몇 행만 표시
+        for (let r = 0; r < Math.min(6, board.length); r++) {
+            const row = board[r];
+            if (Array.isArray(row)) {
+                content += row.slice(0, 10).map(cell => 
+                    String(cell).substring(0, 1)
+                ).join(' ') + '\n';
+            }
+        }
+        
+        if (board.length > 6) {
+            content += `... (+${board.length - 6}행 더)`;
+        }
+
+        display.innerHTML = `
+            <pre style="margin: 0; color: #90EE90;">${content}</pre>
+            <div style="margin-top: 8px; font-size: 9px;">
+                <button onclick="this.parentElement.parentElement.remove()" style="background: #2E7D32; color: white; border: none; padding: 3px 6px; border-radius: 3px;">닫기</button>
+                <button onclick="console.log('🍎 Current Board:', window.globalHelper.gameBoard)" style="background: #1976D2; color: white; border: none; padding: 3px 6px; border-radius: 3px; margin-left: 3px;">콘솔로그</button>
+            </div>
+        `;
+
+        document.body.appendChild(display);
+        
+        // 10초 후 자동 제거
+        setTimeout(() => {
+            if (display.parentNode) display.remove();
+        }, 10000);
     }
 
     /**
