@@ -1,202 +1,174 @@
-# 🍎 AlphaApple - FruitBox Game AI
+# 🍎 AlphaApple - FruitBox RL (WIP)
 
-**한국 사과게임(FruitBox)을 해결하는 AI 에이전트**  
-PPO 강화학습으로 평균 **77점** 달성 (베이스라인 대비 **+7.1% 개선**)
+사과게임(FruitBox) 환경을 Gymnasium 스타일로 구현하고, 대규모 이산 행동공간(모든 직사각형 선택)에 대해 Maskable PPO로 학습하는 계획을 담은 리포지토리입니다.
 
-[![HuggingFace Model](https://img.shields.io/badge/🤗%20HuggingFace-Model-yellow)](https://huggingface.co/kbsooo/AlphaApple)
-[![Chrome Extension](https://img.shields.io/badge/🌐%20Chrome-Extension-blue)](#-chrome-확장-사용법)
+현재 코드 베이스는 환경 구현이 중심이며, 학습/평가 스크립트는 아래 가이드를 따라 쉽게 추가할 수 있습니다.
 
-## 🎯 완성된 기능들
+## 📦 구성 요소
 
-✅ **AI 에이전트 학습 완료** (1M 스텝, 체크포인트별 성능 추적)  
-✅ **ONNX 모델 변환** (2.95MB, 웹 배포 최적화)  
-✅ **HuggingFace 모델 업로드** ([kbsooo/AlphaApple](https://huggingface.co/kbsooo/AlphaApple))  
-✅ **Chrome 확장 프로그램** (실제 게임에서 실시간 AI 도움)  
-✅ **성능 평가 도구** (Random/Greedy/PPO 비교 분석)
+- `envs/fruitbox_env.py`: FruitBox 게임 환경 구현
+- `pyproject.toml`: 의존성과 패키징 메타데이터
+
+## 🧩 환경 개요
+
+- 관찰: `rows×cols` 정수 격자(기본 10×17), 값 0~9. 0은 빈칸입니다.
+- 행동: 모든 축정렬 직사각형 `(r1,c1,r2,c2)`을 미리 열거한 `Discrete(N)`.
+- 마스킹: 합이 정확히 10이고, 0을 포함하지 않는 직사각형만 합법(True)으로 표시됩니다. 마스크는 `reset/step`의 `info['action_mask']`로 제공됩니다.
+- 종료: 합법 행동이 더 이상 없거나, 안전 상한 `max_steps` 도달 시 종료.
+- 보상: 선택한 직사각형 넓이(셀 수) × `reward_per_cell`.
+
+주의: 기본 보드 크기는 `rows=10, cols=17`입니다. 실제 게임 보드가 17×10이면 설정을 바꿔 사용하세요.
+
+## 🧠 권장 학습 접근
+
+- 알고리즘: `sb3-contrib`의 MaskablePPO (불법 행동을 확률분포에서 제거)
+- 전처리: 관찰을 0~1로 정규화하고 채널 차원(1×R×C)을 추가하는 래퍼
+- 특징추출: 작은 CNN(SmallGridCNN)으로 128차원 특징 벡터 추출
+- 병렬 수집: 8개 내외 병렬 환경(`SubprocVecEnv`) 권장
+- 시작 하이퍼파라미터: `lr=3e-4, γ=0.995, clip=0.2, n_steps≈8k, batch_size=64~256, ent_coef≈0.01`
 
 ## 🚀 빠른 시작
 
-### Chrome 확장으로 바로 사용하기
-
-**1단계: 확장 설치** (30초)
-1. Chrome에서 `chrome://extensions/` 접속
-2. **개발자 모드** 켜기 (우상단 토글)
-3. **압축해제된 확장 프로그램을 로드합니다** 클릭
-4. `chrome_extension/` 폴더 선택
-5. 🍎 **AlphaApple** 확장 설치 완료!
-
-**2단계: 게임에서 사용**
-1. 사과게임 웹사이트 접속
-2. 우하단 🍎 **AI Assistant** 버튼 클릭  
-3. AI가 추천하는 **금색 하이라이트** 영역을 드래그 선택
-4. 점수 상승 확인! 🎉
-
-**테스트:** `web/test_game.html` 파일로 확장 기능 테스트 가능
-
-### 개발자용 모델 테스트
+### 의존성 설치
 
 ```bash
-# 의존성 설치
 uv install
-
-# 전체 에이전트 성능 비교
-python src/full_comparison.py
-
-# AI 플레이 과정 관찰  
-python src/evaluate_ppo.py --interactive
-
-# ONNX 모델 변환 및 테스트
-python src/convert_to_onnx.py
-python src/test_onnx.py
-```
-
-## 📊 성능 결과
-
-### 에이전트 비교 (100 에피소드)
-| 에이전트 | 평균 점수 | 표준편차 | 개선율 |
-|----------|-----------|----------|--------|
-| Random   | 71.9      | 8.31     | -      |
-| Greedy   | 73.3      | 8.48     | +1.9%  |
-| **PPO**  | **77.0**  | **9.09** | **+7.1%** |
-
-### 학습 과정
-- **학습 스텝:** 1,000,000 (병렬 8환경)
-- **체크포인트:** 10만 스텝마다 저장
-- **최종 성과:** 76.6점 → 77점 (안정적 성능)
-
-## 🌐 웹 배포 및 API
-
-### HuggingFace 모델 사용
-
-**PyTorch 모델:**
-```python
-from stable_baselines3 import PPO
-model = PPO.load("pytorch_model.zip")
-action, _ = model.predict(observation)
-```
-
-**ONNX 웹 배포:**
-```javascript
-import { InferenceSession } from 'onnxruntime-web';
-
-const session = await InferenceSession.create(
-    'https://huggingface.co/kbsooo/AlphaApple/resolve/main/fruitbox_ppo.onnx'
-);
-
-const result = await session.run({
-    board_input: new ort.Tensor('float32', boardData, [1, 17, 10, 1])
-});
-```
-
-### 직접 사용 (오프라인)
-```bash
-# ONNX 모델 다운로드
-curl -L https://huggingface.co/kbsooo/AlphaApple/resolve/main/fruitbox_ppo.onnx -o model.onnx
-
-# JavaScript 라이브러리 복사
-cp web/fruitbox_ai.js ./your_project/
-```
-
-## 🎮 Chrome 확장 세부사항
-
-### 지원 기능
-- **자동 보드 감지**: 17×10 격자 자동 인식
-- **실시간 AI 추천**: 최적 직사각형 하이라이트  
-- **수동 보드 선택**: 자동 감지 실패 시 수동 지정
-- **성능 표시**: AI 신뢰도 및 예상 점수
-
-### 파일 구조
-```
-chrome_extension/
-├── manifest.json          # 확장 설정
-├── popup.html/js          # 제어 팝업  
-├── content_script.js      # 게임 페이지 스크립트
-├── fruitbox_ai.js         # AI 추론 라이브러리
-├── models/fruitbox_ppo.onnx # AI 모델 (2.95MB)
-└── libs/ort-web.min.js    # ONNX Runtime
-```
-
-## 📁 프로젝트 구조
-
-```
-alphaapple/
-├── envs/fruitbox_env.py           # 게임 환경 구현
-├── train/train_maskable_ppo.py    # PPO 학습 스크립트  
-├── src/
-│   ├── full_comparison.py         # 전체 성능 비교
-│   ├── evaluate_ppo.py            # PPO 모델 평가
-│   ├── convert_to_onnx.py         # ONNX 변환
-│   └── upload_to_hf.py            # HuggingFace 업로드
-├── chrome_extension/              # Chrome 확장 완성본
-├── web/                           # 웹 배포 도구
-└── ckpts/                         # 학습된 모델들
-```
-
-## 🔬 기술적 설계 세부사항
-
-<details>
-<summary>환경 및 행동 공간 설계</summary>
-
-### 상태 (Observation)
-- **형태:** 17×10 격자, 각 칸은 1-9 정수
-- **텐서:** `[1, 17, 10]` int8 또는 원-핫 `[9, 17, 10]`
-- **전처리:** 0-1 정규화 후 `(17, 10, 1)` 채널 차원 추가
-
-### 행동 (Action) 
-- **정의:** 모든 직사각형 (r1,c1,r2,c2) 조합 (r1≤r2, c1≤c2)
-- **총 개수:** 8,415개 (17×18/2 × 10×11/2)
-- **마스킹:** 합≠10 또는 빈칸 포함 시 선택 불가
-
-### 보상 (Reward)
-- **성공:** 제거된 셀 개수만큼 양수 보상
-- **실패:** 보상 0 (상태 변화 없음)
-- **추가:** 스텝 패널티 -0.01, 완료 보너스 +20
-
-</details>
-
-<details>
-<summary>신경망 구조</summary>
-
-### SmallGridCNN
-```python
-# 입력: (batch, 17, 10, 1)
-Conv2d(1, 16, 3x3, padding=1) → ReLU
-Conv2d(16, 32, 3x3, padding=1) → ReLU  
-Conv2d(32, 32, 3x3, stride=2) → ReLU  # 다운샘플
-Flatten → Linear(n_flatten, 128) → ReLU
-# 출력: (batch, 128) 특징벡터
-```
-
-### PPO 정책
-- **정책 헤드:** Linear(128 → 8415) + Softmax + Masking
-- **가치 헤드:** Linear(128 → 1)
-- **하이퍼파라미터:** lr=3e-4, γ=0.995, clip=0.2
-
-</details>
-
-## 🔧 개발 환경 설정
-
-```bash
-# 프로젝트 클론
-git clone [repository-url]
-cd alphaapple
-
-# 의존성 설치 (uv 권장)
-uv install
-
-# 또는 pip 사용
+# 또는
 pip install -e .
 ```
 
-## 📝 TODO / 향후 계획
+### 필수 래퍼들
 
-- [ ] **성능 개선**: Transformer 기반 모델 실험
-- [ ] **커리큘럼 학습**: 6×7 → 10×17 점진적 확대  
-- [ ] **모델 양자화**: INT8 최적화로 더 빠른 웹 추론
-- [ ] **게임 사이트 연동**: 실제 사과게임 사이트 지원 확대
-- [ ] **모바일 앱**: React Native로 모바일 버전
+```python
+import numpy as np
+import gymnasium as gym
+from gymnasium import spaces, ObservationWrapper
 
-## 🤝 기여 방법
+class FloatChannelObs(ObservationWrapper):
+    """(R,C) int8 → (1,R,C) float32 in [0,1]"""
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+        R, C = env.observation_space.shape
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(1, R, C), dtype=np.float32)
+
+    def observation(self, obs):
+        return (obs.astype(np.float32) / 9.0)[None, ...]
+
+# sb3-contrib의 ActionMasker 사용 시, 합법 행동 마스크를 제공
+from sb3_contrib.common.wrappers import ActionMasker
+
+def mask_fn(env):
+    mask = np.zeros(env.action_space.n, dtype=bool)
+    mask[env.legal_actions()] = True
+    return mask
+```
+
+### SmallGridCNN (SB3 특징추출기)
+
+```python
+import torch
+from torch import nn
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+class SmallGridCNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box, features_dim=128):
+        super().__init__(observation_space, features_dim)
+        n_ch, H, W = observation_space.shape
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_ch, 16, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(16, 32, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=2, padding=1), nn.ReLU(),
+            nn.Flatten(),
+        )
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.zeros(1, *observation_space.shape)).shape[1]
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(obs))
+```
+
+### 최소 학습 예제 (스크립트/노트북용)
+
+```python
+import numpy as np
+import gymnasium as gym
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
+from envs.fruitbox_env import FruitBoxEnv, FruitBoxConfig
+
+def make_env(seed):
+    def _thunk():
+        env = FruitBoxEnv(FruitBoxConfig(rows=10, cols=17))
+        env = FloatChannelObs(env)
+        env = ActionMasker(env, mask_fn)
+        env.reset(seed=seed)
+        return env
+    return _thunk
+
+n_envs = 8
+vec_env = SubprocVecEnv([make_env(42 + i) for i in range(n_envs)])
+
+policy_kwargs = dict(
+    features_extractor_class=SmallGridCNN,
+    features_extractor_kwargs=dict(features_dim=128),
+)
+
+model = MaskablePPO(
+    "CnnPolicy",
+    vec_env,
+    policy_kwargs=policy_kwargs,
+    learning_rate=3e-4,
+    gamma=0.995,
+    n_steps=2048,   # 2048 × 8env ≈ 16k/rollout
+    batch_size=256,
+    ent_coef=0.01,
+    verbose=1,
+)
+
+model.learn(total_timesteps=1_000_000)
+model.save("ckpts/fruitbox_ppo.zip")
+```
+
+### 평가 예제
+
+```python
+env = ActionMasker(FloatChannelObs(FruitBoxEnv()), mask_fn)
+obs, info = env.reset(seed=0)
+total = 0.0
+while True:
+    mask = info.get("action_mask")
+    action, _ = model.predict(obs, deterministic=True, action_masks=mask)
+    obs, reward, terminated, truncated, info = env.step(action)
+    total += reward
+    if terminated or truncated:
+        break
+print("Return:", total)
+```
+
+## 📁 현재 구조
+
+```
+alphaapple/
+├── envs/fruitbox_env.py
+├── pyproject.toml
+└── README.md
+```
+
+## 🧭 로드맵 / TODO
+
+- [ ] 학습 스크립트 `train/train_maskable_ppo.py` 추가
+- [ ] 평가/시각화 도구 추가 (`evaluate.py`, TensorBoard 설정)
+- [ ] ONNX 내보내기/테스트 스크립트 추가
+- [ ] 커리큘럼 학습(작은 보드 → 큰 보드) 실험
+- [ ] 모델 경량화(양자화/프루닝)와 웹 배포 예제
+
+## 참고
+
+- 본 환경의 보상은 스텝 패널티/완료 보너스를 포함하지 않습니다. 필요 시 환경을 확장하거나 하이퍼파라미터로 보완하세요.
+- 행동 마스크는 환경이 계산하여 `info['action_mask']`로 제공하며, 학습 시 `ActionMasker`로 정책에 반영합니다.
 
 1. Fork 후 feature branch 생성
 2. 변경사항 커밋
