@@ -106,16 +106,12 @@ class FruitBoxEnv(gym.Env):
     def _compute_action_mask(self, board: np.ndarray) -> np.ndarray:
         """
         Boolean mask of shape (n_actions,):
-        True for rectangles whose sum==10 AND contain no zeros.
+        True for rectangles whose sum==10 (zeros are allowed).
         """
         ps_val = self._padded_prefix_sums(board)
         sums = self._rect_sums_vectorized(ps_val)
 
-        zero_grid = (board == 0).astype(np.int8)
-        ps_zero = self._padded_prefix_sums(zero_grid)
-        zero_counts = self._rect_sums_vectorized(ps_zero)
-
-        return (sums == 10) & (zero_counts == 0)
+        return (sums == 10)
 
     # ---------- Gymnasium API ----------
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None) -> Tuple[np.ndarray, dict]:
@@ -142,9 +138,10 @@ class FruitBoxEnv(gym.Env):
             return obs, 0.0, False, False, info
 
         r1, c1, r2, c2 = self.rects[action]
-        region_h = (r2 - r1 + 1)
-        region_w = (c2 - c1 + 1)
-        cells_cleared = region_h * region_w
+
+        # Count only non-zero cells (actually cleared cells)
+        region = self.board[r1 : r2 + 1, c1 : c2 + 1]
+        cells_cleared = int(np.sum(region > 0))
 
         self.board[r1 : r2 + 1, c1 : c2 + 1] = 0
 
