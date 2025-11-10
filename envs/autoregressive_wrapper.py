@@ -134,6 +134,57 @@ class AutoregressiveEnvWrapper(gym.Wrapper):
 
         return mask
 
+    def get_autoregressive_masks(self) -> dict:
+        """
+        현재 보드 상태에서 각 단계별 유효한 좌표 마스크를 반환
+
+        Returns:
+            dict with keys:
+                - 'r1_mask': (rows,) boolean array
+                - 'c1_masks': (rows, cols) boolean array
+                - 'r2_masks': (rows, cols, rows) boolean array
+                - 'c2_masks': (rows, cols, rows, cols) boolean array
+        """
+        rows, cols = self.env.cfg.rows, self.env.cfg.cols
+
+        # 전체 action mask 가져오기
+        action_mask = self.env._compute_action_mask(self.env.board)
+
+        # r1_mask: 어떤 r1이 가능한지
+        r1_mask = np.zeros(rows, dtype=bool)
+        for action_idx, valid in enumerate(action_mask):
+            if valid:
+                r1, _, _, _ = self.env.rects[action_idx]
+                r1_mask[r1] = True
+
+        # c1_masks: r1이 주어졌을 때 어떤 c1이 가능한지
+        c1_masks = np.zeros((rows, cols), dtype=bool)
+        for action_idx, valid in enumerate(action_mask):
+            if valid:
+                r1, c1, _, _ = self.env.rects[action_idx]
+                c1_masks[r1, c1] = True
+
+        # r2_masks: r1, c1이 주어졌을 때 어떤 r2가 가능한지
+        r2_masks = np.zeros((rows, cols, rows), dtype=bool)
+        for action_idx, valid in enumerate(action_mask):
+            if valid:
+                r1, c1, r2, _ = self.env.rects[action_idx]
+                r2_masks[r1, c1, r2] = True
+
+        # c2_masks: r1, c1, r2가 주어졌을 때 어떤 c2가 가능한지
+        c2_masks = np.zeros((rows, cols, rows, cols), dtype=bool)
+        for action_idx, valid in enumerate(action_mask):
+            if valid:
+                r1, c1, r2, c2 = self.env.rects[action_idx]
+                c2_masks[r1, c1, r2, c2] = True
+
+        return {
+            'r1_mask': r1_mask,
+            'c1_masks': c1_masks,
+            'r2_masks': r2_masks,
+            'c2_masks': c2_masks
+        }
+
 
 def make_autoregressive_env(
     rows: int = 10,

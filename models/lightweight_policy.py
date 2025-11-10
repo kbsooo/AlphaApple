@@ -89,7 +89,8 @@ class LightweightPolicy(nn.Module):
         self,
         board: torch.Tensor,
         deterministic: bool = False,
-        action: Optional[Tuple[torch.Tensor, ...]] = None
+        action: Optional[Tuple[torch.Tensor, ...]] = None,
+        masks: Optional[dict] = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         batch_size = board.shape[0]
         device = board.device
@@ -107,6 +108,13 @@ class LightweightPolicy(nn.Module):
         ctx_r1 = torch.cat([h, torch.zeros(batch_size, self.embed_dim * 2, device=device)], dim=-1)
         logits_r1 = self.row_decoder(ctx_r1)
 
+        # 마스킹 적용 (합법 행동만 선택 가능)
+        if masks is not None and 'r1_mask' in masks:
+            r1_mask = masks['r1_mask']  # (batch_size, rows) or (rows,)
+            if r1_mask.dim() == 1:
+                r1_mask = r1_mask.unsqueeze(0).expand(batch_size, -1)
+            logits_r1 = logits_r1.masked_fill(~r1_mask, -1e9)
+
         if action is not None:
             r1 = action[0]
         else:
@@ -122,6 +130,15 @@ class LightweightPolicy(nn.Module):
         r1_emb = self.r_embed(r1)
         ctx_c1 = torch.cat([h, r1_emb, torch.zeros(batch_size, self.embed_dim, device=device)], dim=-1)
         logits_c1 = self.col_decoder(ctx_c1)
+
+        # 마스킹 적용 (r1에 따라 가능한 c1만 선택)
+        if masks is not None and 'c1_masks' in masks:
+            c1_masks = masks['c1_masks']  # (batch_size, rows, cols) or (rows, cols)
+            if c1_masks.dim() == 2:
+                c1_masks = c1_masks.unsqueeze(0).expand(batch_size, -1, -1)
+            # r1에 해당하는 마스크 가져오기
+            c1_mask = c1_masks[torch.arange(batch_size, device=device), r1]  # (batch_size, cols)
+            logits_c1 = logits_c1.masked_fill(~c1_mask, -1e9)
 
         if action is not None:
             c1 = action[1]
@@ -139,8 +156,18 @@ class LightweightPolicy(nn.Module):
         ctx_r2 = torch.cat([h, r1_emb, c1_emb], dim=-1)
         logits_r2 = self.row_decoder(ctx_r2)
 
-        # 마스킹
+        # 기본 마스킹 (r2 ≥ r1)
         mask_r2 = torch.arange(self.rows, device=device).unsqueeze(0) >= r1.unsqueeze(-1)
+
+        # 추가 마스킹 (r1, c1에 따라 가능한 r2만 선택)
+        if masks is not None and 'r2_masks' in masks:
+            r2_masks = masks['r2_masks']  # (batch_size, rows, cols, rows) or (rows, cols, rows)
+            if r2_masks.dim() == 3:
+                r2_masks = r2_masks.unsqueeze(0).expand(batch_size, -1, -1, -1)
+            # r1, c1에 해당하는 마스크 가져오기
+            r2_mask = r2_masks[torch.arange(batch_size, device=device), r1, c1]  # (batch_size, rows)
+            mask_r2 = mask_r2 & r2_mask
+
         logits_r2 = logits_r2.masked_fill(~mask_r2, -1e9)
 
         if action is not None:
@@ -159,8 +186,18 @@ class LightweightPolicy(nn.Module):
         ctx_c2 = torch.cat([h, r2_emb, c1_emb], dim=-1)
         logits_c2 = self.col_decoder(ctx_c2)
 
-        # 마스킹
+        # 기본 마스킹 (c2 ≥ c1)
         mask_c2 = torch.arange(self.cols, device=device).unsqueeze(0) >= c1.unsqueeze(-1)
+
+        # 추가 마스킹 (r1, c1, r2에 따라 가능한 c2만 선택)
+        if masks is not None and 'c2_masks' in masks:
+            c2_masks = masks['c2_masks']  # (batch_size, rows, cols, rows, cols) or (rows, cols, rows, cols)
+            if c2_masks.dim() == 4:
+                c2_masks = c2_masks.unsqueeze(0).expand(batch_size, -1, -1, -1, -1)
+            # r1, c1, r2에 해당하는 마스크 가져오기
+            c2_mask = c2_masks[torch.arange(batch_size, device=device), r1, c1, r2]  # (batch_size, cols)
+            mask_c2 = mask_c2 & c2_mask
+
         logits_c2 = logits_c2.masked_fill(~mask_c2, -1e9)
 
         if action is not None:
