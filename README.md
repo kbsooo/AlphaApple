@@ -13,12 +13,18 @@
 │ 벤치마크                                    │
 ├────────────────────────────────────────────┤
 │ 사람 최고:      130개 (76.5%)             │
-│ Greedy 전략:    110개 (64.6%)             │
-│ 현재 모델:      115-120개 예상 (67-70%)   │
+│ Greedy 전략:    105개 (62.0%)             │
+│ V2 모델:        104개 (61.3%) [95% 보드]  │
+│ V3 모델:        115-125개 예상 (67-74%)   │
 │                                            │
 │ 최종 목표:      170개 (100%) ⭐           │
 └────────────────────────────────────────────┘
 ```
+
+**최신 업데이트 (V3)**:
+- ✅ Beam Search로 고품질 데이터 수집
+- ✅ Data Augmentation (회전/대칭)
+- ✅ Early Stopping으로 overfitting 방지
 
 ## 💡 핵심 아이디어
 
@@ -49,17 +55,25 @@ board, solution = generator.generate(target_coverage=0.95)
 
 ## 🚀 빠른 시작 (Colab 권장)
 
-### Colab에서 학습 (30분)
+### Colab에서 학습
 
-1. [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab.ipynb) 클릭
+**V3 (권장)**: Beam Search + Data Augmentation
+- 학습 시간: ~30-60분
+- 예상 성능: 115-125개 (67-74%)
+- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab_v3.ipynb)
 
+**V2**: Action Mask 기반 학습
+- 학습 시간: ~10분
+- 예상 성능: 104개 (61%)
+- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab_v2.ipynb)
+
+**단계**:
+1. 위 배지 클릭
 2. 런타임 → GPU로 변경
-
 3. 전체 셀 실행
+4. `bc_policy_best_vX.pt` 다운로드
 
-4. `bc_policy_best.pt` 다운로드
-
-**완료!** 사람 수준의 성능을 가진 모델을 얻습니다.
+**완료!** 사람 수준에 근접한 성능의 모델을 얻습니다.
 
 ### 로컬 설치
 
@@ -119,7 +133,9 @@ AlphaApple/
 │   ├── train_behavior_cloning.py    # BC 학습
 │   └── evaluate.py                  # 성능 평가
 │
-├── train_colab.ipynb                # Colab 학습 노트북 ⭐
+├── train_colab.ipynb                # Colab 학습 (V1)
+├── train_colab_v2.ipynb             # Colab 학습 (V2 - Action Mask)
+├── train_colab_v3.ipynb             # Colab 학습 (V3 - Beam Search) ⭐
 └── README.md
 ```
 
@@ -160,17 +176,29 @@ AlphaApple/
 
 ## 📊 실험 결과
 
+### 버전별 성능 비교
+
+| 버전 | 방법 | 평균 (95% 보드) | 평균 (일반) | 최대 | 비고 |
+|------|------|----------------|------------|------|------|
+| V1 | BC (no mask) | -500 (0%) | -500 (0%) | 0 | 불법 행동 문제 |
+| V2 | BC + Action Mask | 101.5 (59.7%) | 104.2 (61.3%) | 129 | Greedy 수준 |
+| **V3** | **Beam Search + Aug** | **예상: 115-125** | **예상: 115-125** | **예상: 130+** | **사람 최고 도달 목표** ⭐ |
+
 ### 베이스라인 비교
 
 | 전략 | 평균 제거 | 범위 | 비고 |
 |------|-----------|------|------|
 | Random | 99.7개 (58.6%) | [86-119] | 순전히 랜덤 |
 | Greedy (큰 것) | 96.4개 (56.7%) | [78-114] | 직관적이지만 나쁨 |
-| **Greedy (작은 것)** | **105.4개 (62.0%)** | [91-130] | 최고 휴리스틱 ⭐ |
-| 전문가 데이터 | 109.9개 (64.6%) | [66-152] | BC 학습용 |
+| **Greedy (작은 것)** | **105.4개 (62.0%)** | [91-130] | 최고 휴리스틱 |
+| V2 모델 (BC) | 104.2개 (61.3%) | [84-129] | Greedy와 비슷 |
+| Beam Search (width=20) | 110-120개 (예상) | - | V3 데이터 수집용 ⭐ |
 
-**핵심 발견**: "작은 것 우선"이 "큰 것 우선"보다 9개 더 좋음!
-- 이유: 작은 조합 제거 → 0 생성 → 미래 자원
+**핵심 발견**:
+1. "작은 것 우선"이 "큰 것 우선"보다 9개 더 좋음
+   - 이유: 작은 조합 제거 → 0 생성 → 미래 자원
+2. V2는 Greedy 수준에서 정체 → 더 나은 데이터 필요
+3. Beam Search로 115-125개 달성 가능 예상
 
 ### 환경 수정의 영향
 
@@ -255,8 +283,12 @@ strategy = "small_first"  # 작은 것 우선
 - [x] 역방향 보드 생성기
 - [x] Autoregressive Policy
 - [x] 경량 모델 (706K params)
-- [x] Behavior Cloning 파이프라인
-- [x] Colab 학습 노트북
+- [x] Behavior Cloning 파이프라인 (V1)
+- [x] Action Mask 기반 학습 (V2)
+- [x] Beam Search + Data Augmentation (V3)
+- [x] Colab 학습 노트북 (V1/V2/V3)
+- [ ] V3 실험 결과 확인
+- [ ] Expert Iteration (V4)
 - [ ] PPO Fine-tuning
 - [ ] MCTS 통합
 - [ ] ONNX 변환 & 웹 배포
