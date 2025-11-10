@@ -57,14 +57,19 @@ board, solution = generator.generate(target_coverage=0.95)
 
 ### Colab에서 학습
 
-**V3 (권장)**: Beam Search + Data Augmentation
+**V4 (최신, 권장)**: Expert Iteration (Self-Improvement)
+- 학습 시간: ~60-90분 (5 iterations)
+- 예상 성능: 110-125개 (64-73%)
+- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab_v4.ipynb)
+
+**V3**: Multiple Rollouts
 - 학습 시간: ~30-60분
-- 예상 성능: 115-125개 (67-74%)
+- 결과: 101.9개 (59.9%) - V2와 유사
 - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab_v3.ipynb)
 
 **V2**: Action Mask 기반 학습
 - 학습 시간: ~10분
-- 예상 성능: 104개 (61%)
+- 결과: 101.5개 (59.7%)
 - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kbsooo/AlphaApple/blob/main/train_colab_v2.ipynb)
 
 **단계**:
@@ -135,7 +140,8 @@ AlphaApple/
 │
 ├── train_colab.ipynb                # Colab 학습 (V1)
 ├── train_colab_v2.ipynb             # Colab 학습 (V2 - Action Mask)
-├── train_colab_v3.ipynb             # Colab 학습 (V3 - Beam Search) ⭐
+├── train_colab_v3.ipynb             # Colab 학습 (V3 - Multiple Rollouts)
+├── train_colab_v4.ipynb             # Colab 학습 (V4 - Expert Iteration) ⭐
 └── README.md
 ```
 
@@ -159,20 +165,35 @@ AlphaApple/
 ```
 **예상 성능**: 115-120개 (67-70%)
 
-### Phase 2: PPO Fine-tuning (계획)
+### Phase 2: Expert Iteration (V4 - 현재 진행 중)
+```python
+# Self-Improvement Loop
+# 1. 현재 정책으로 데이터 수집
+# 2. 고품질 에피소드만 선택 (top 50%)
+# 3. 정책 업데이트
+# 4. 반복 (3-5 iterations)
+```
+**핵심 아이디어**:
+- V3 문제: Expert가 약함 (103.7개) → 학습 ceiling
+- V4 해결: 정책이 스스로를 가르침 → 점진적 개선
+- AlphaGo Zero의 핵심 메커니즘
+
+**예상 성능**: 110-125개 (64-73%)
+
+### Phase 3: PPO Fine-tuning (계획)
 ```python
 # BC 모델을 warm-start로 사용
 # PPO로 추가 학습
 # Reward shaping: 미래 가능성 고려
 ```
-**예상 성능**: 125-135개 (73-79%)
+**예상 성능**: 130-145개 (76-85%)
 
-### Phase 3: MCTS + RL (선택사항)
+### Phase 4: MCTS + RL (선택사항)
 ```python
 # 완벽한 플레이를 위한 고급 기법
 # AlphaZero 스타일 MCTS
 ```
-**예상 성능**: 150-160개 (88-94%)
+**예상 성능**: 160-170개 (94-100%) 🎯
 
 ## 📊 실험 결과
 
@@ -182,7 +203,7 @@ AlphaApple/
 |------|------|----------------|------------|------|------|
 | V1 | BC (no mask) | -500 (0%) | -500 (0%) | 0 | 불법 행동 문제 |
 | V2 | BC + Action Mask | 101.5 (59.7%) | 104.2 (61.3%) | 129 | Greedy 수준 |
-| **V3** | **Beam Search + Aug** | **예상: 115-125** | **예상: 115-125** | **예상: 130+** | **사람 최고 도달 목표** ⭐ |
+| **V3** | **Multiple Rollouts** | **101.9 (59.9%)** | **103.7 (61.0%)** | **120** | **V2와 유사, 큰 개선 없음** |
 
 ### 베이스라인 비교
 
@@ -198,7 +219,12 @@ AlphaApple/
 1. "작은 것 우선"이 "큰 것 우선"보다 9개 더 좋음
    - 이유: 작은 조합 제거 → 0 생성 → 미래 자원
 2. V2는 Greedy 수준에서 정체 → 더 나은 데이터 필요
-3. Beam Search로 115-125개 달성 가능 예상
+3. **V3 분석 (2025-11-10)**:
+   - Multiple Rollouts로 데이터 다양성 증가 시도
+   - 결과: V2와 거의 동일 (101.9 vs 101.5)
+   - 평균 Expert 보상: 103.7개 (학습 ceiling)
+   - **문제**: Expert 자체가 약함 (103.7개) → 학습 한계
+   - **해결**: Expert Iteration으로 Self-Improvement 필요
 
 ### 환경 수정의 영향
 
@@ -285,14 +311,14 @@ strategy = "small_first"  # 작은 것 우선
 - [x] 경량 모델 (706K params)
 - [x] Behavior Cloning 파이프라인 (V1)
 - [x] Action Mask 기반 학습 (V2)
-- [x] Beam Search + Data Augmentation (V3)
+- [x] Multiple Rollouts (V3) - 결과: V2와 유사
 - [x] Colab 학습 노트북 (V1/V2/V3)
-- [ ] V3 실험 결과 확인
-- [ ] Expert Iteration (V4)
+- [x] V3 실험 결과 확인 (2025-11-10)
+- [ ] **Expert Iteration (V4)** ← 현재 진행 중
 - [ ] PPO Fine-tuning
 - [ ] MCTS 통합
 - [ ] ONNX 변환 & 웹 배포
-- [ ] 실제 게임 보드 테스트
+- [ ] **170점 만점 달성** 🎯
 
 ## 🤝 기여
 
@@ -311,6 +337,106 @@ MIT License
 - **HuggingFace**: https://huggingface.co/kbsooo/AlphaApple
 - **GitHub Issues**: [Report bugs or request features](https://github.com/kbsooo/AlphaApple/issues)
 - **Author**: kbsooo
+
+## 📝 V4 Expert Iteration 상세 설명
+
+### 왜 Expert Iteration인가?
+
+**V3의 문제점**:
+- Multiple Rollouts로 데이터 다양성 증가 시도
+- 결과: V2와 거의 동일 (101.9개 vs 101.5개)
+- **근본 원인**: Expert가 약함 (평균 103.7개) → 학습 ceiling
+
+**V4의 해결책**: Self-Improvement Loop
+```
+for iteration in range(5):
+    1. 현재 정책으로 500개 보드 플레이 (각 5 rollouts)
+    2. 고품질 에피소드만 선택 (top 50%)
+    3. 선택된 데이터로 정책 학습
+    4. 평가 → 개선 확인
+```
+
+### 왜 작동하는가?
+
+**점진적 개선 메커니즘**:
+```
+Iteration 0: 초기 정책 (100개)
+  → 500개 보드 플레이
+  → 운 좋게 일부 보드에서 105개 달성
+  → Top 50% 선택 (평균 105개)
+  → 학습
+
+Iteration 1: 개선된 정책 (105개)
+  → 이제 안정적으로 105개 달성
+  → 일부 보드에서 110개 달성
+  → Top 50% 선택 (평균 110개)
+  → 학습
+
+Iteration N: 계속 개선...
+```
+
+**AlphaGo Zero의 핵심 메커니즘**:
+- 자기 자신과 플레이 (self-play)
+- 좋은 플레이만 학습 (selective learning)
+- 점진적 성능 향상 (iterative improvement)
+
+### 구현 세부사항
+
+**데이터 수집 (collect_self_play_data)**:
+- 현재 정책으로 각 보드 5번 플레이
+- 다양성 확보: deterministic=False로 stochastic sampling
+- Best rollout만 저장
+- Top 50% 선택 (threshold 기반도 가능)
+
+**학습 (train_on_data)**:
+- 선택된 데이터로 Behavior Cloning
+- 15 epochs (빠른 학습)
+- Train/Val split: 90/10
+- Early stopping 없음 (데이터가 계속 바뀌므로)
+
+**평가 (evaluate_policy_quick)**:
+- 빠른 평가: 20-30 episodes
+- 95% 제거 가능 보드 사용
+- Deterministic 정책 평가
+
+### 하이퍼파라미터
+
+```python
+N_ITERATIONS = 5              # 반복 횟수
+N_EPISODES_PER_ITER = 500     # iteration당 보드 수
+N_ROLLOUTS = 5                # 보드당 플레이 횟수
+TOP_K_PCT = 0.5               # 상위 50% 선택
+N_EPOCHS_PER_ITER = 15        # iteration당 학습 epochs
+```
+
+### 다음 세션 참고사항
+
+1. **V4 실행 시간**: ~60-90분 (Colab T4 GPU 기준)
+2. **V3 모델 warm-start**: 있으면 로드, 없으면 처음부터 학습
+3. **모델 저장**: 각 iteration마다 `bc_policy_v4_iter{N}.pt` 저장
+4. **평가**: 각 iteration 후 30 episodes로 빠른 평가
+5. **최종 평가**: 최고 성능 iteration 선택 후 50 episodes로 평가
+
+### 예상 결과
+
+- **Best Case**: 110-125개 (64-73%)
+- **Typical Case**: 105-115개 (61-67%)
+- **Worst Case**: V3와 유사 (101-105개)
+
+**성공 지표**:
+- Iteration별로 평균/최대 보상 증가 추세
+- 마지막 iteration이 처음보다 5개 이상 개선
+
+### 다음 단계 (V4 이후)
+
+**만약 V4가 115개 이상 달성**:
+→ PPO Fine-tuning 시도 (Phase 3)
+
+**만약 V4가 110개 미만**:
+→ 더 많은 iterations (10회) 또는 더 큰 데이터셋 (1000 episodes) 시도
+
+**최종 목표**:
+→ **170점 만점 달성** 🎯
 
 ## 🙏 감사의 말
 
