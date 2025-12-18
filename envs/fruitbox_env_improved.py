@@ -23,7 +23,7 @@ class FruitBoxImprovedConfig:
     rows: int = 10
     cols: int = 17
     reward_per_cell: float = 1.0
-    reward_per_zero_cell: float = 0.25  # encourage 0 포함 직사각형 선택
+    reward_per_zero_cell: float = 0.0  # zero-valued cells (cleared apples) give no extra reward
     illegal_action_reward: float = -1.0
     max_steps: int = 500  # safety cap; original game uses time, not steps
 
