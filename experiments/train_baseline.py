@@ -13,7 +13,14 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 # 프로젝트 루트 경로 추가
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+try:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+except NameError:
+    # Jupyter Notebook 위에서 실행될 경우 __file__ 이 정의되지 않으므로 현재 작업 디렉토리 기준 처리
+    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 from envs.fruitbox_env import FruitBoxEnvImproved, FruitBoxImprovedConfig
 from src.agent import DQNAgent
