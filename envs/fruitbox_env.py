@@ -1,41 +1,53 @@
+"""
+Improved FruitBox environment that addresses several issues in the baseline:
+- Optional backward board generation for solvable boards (high coverage).
+- Illegal actions advance time and can carry a penalty; episodes end when no legal actions.
+- Incremental action-mask updates so we do not rescan every rectangle on illegal steps.
+- Reward can include zero-valued cells to encourage 0 활용 전략.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
-import numpy as np
 import gymnasium as gym
+import numpy as np
 from gymnasium import spaces
+
+from envs.backward_generator import BackwardBoardGenerator
 
 
 @dataclass
-class FruitBoxConfig:
+class FruitBoxImprovedConfig:
     rows: int = 10
     cols: int = 17
     reward_per_cell: float = 1.0
+    reward_per_zero_cell: float = 0.0  # zero-valued cells (cleared apples) give no extra reward
+    illegal_action_reward: float = -1.0
     max_steps: int = 500  # safety cap; original game uses time, not steps
 
     # Board generation
-    values_low: int = 1
-    values_high: int = 9  # inclusive
-    enforce_total_sum_mod_10: bool = True  # try to make sum % 10 == 0 at reset
+    use_backward_generator: bool = True
+    target_coverage: float = 0.95  # only used when use_backward_generator is True
+    enforce_total_sum_mod_10: bool = True  # fallback random generation
 
     # Rendering
     render_mode: Optional[str] = None  # "ansi" or None
 
 
-class FruitBoxEnv(gym.Env):
+class FruitBoxEnvImproved(gym.Env):
     metadata = {"render_modes": ["ansi"], "render_fps": 30}
 
-    def __init__(self, config: Optional[FruitBoxConfig] = None, **kwargs):
+    def __init__(self, config: Optional[FruitBoxImprovedConfig] = None, **kwargs):
         super().__init__()
         if config is None:
-            cfg = FruitBoxConfig(**kwargs) if kwargs else FruitBoxConfig()
+            cfg = FruitBoxImprovedConfig(**kwargs) if kwargs else FruitBoxImprovedConfig()
         else:
             cfg = config
             for k, v in kwargs.items():
                 setattr(cfg, k, v)
-        self.cfg: FruitBoxConfig = cfg
+        self.cfg: FruitBoxImprovedConfig = cfg
 
         R, C = self.cfg.rows, self.cfg.cols
         assert R > 0 and C > 0, "rows and cols must be positive"
@@ -60,11 +72,28 @@ class FruitBoxEnv(gym.Env):
         self._idx_r2p = self.rects[:, 2] + 1  # r2+1
         self._idx_c2p = self.rects[:, 3] + 1  # c2+1
 
+        # Cell -> list of rectangles that include the cell (for incremental updates)
+        self._cell_to_rects: List[np.ndarray] = self._build_cell_to_rects()
+
         self.board: np.ndarray = np.zeros((R, C), dtype=np.int16)
         self.steps: int = 0
         self.np_random = np.random.default_rng()
 
+        # Cached per-rect sums and mask
+        self._rect_sums: np.ndarray = np.zeros(self.n_actions, dtype=np.int32)
+        self._action_mask: np.ndarray = np.zeros(self.n_actions, dtype=bool)
+
     # ---------- utilities ----------
+    def _build_cell_to_rects(self) -> List[np.ndarray]:
+        R, C = self.cfg.rows, self.cfg.cols
+        mapping: List[List[int]] = [[] for _ in range(R * C)]
+        for idx, (r1, c1, r2, c2) in enumerate(self.rects):
+            for r in range(r1, r2 + 1):
+                base = r * C
+                for c in range(c1, c2 + 1):
+                    mapping[base + c].append(idx)
+        return [np.array(indices, dtype=np.int32) for indices in mapping]
+
     @staticmethod
     def _padded_prefix_sums(arr: np.ndarray) -> np.ndarray:
         """Return (R+1, C+1) padded summed-area table."""
@@ -83,12 +112,18 @@ class FruitBoxEnv(gym.Env):
         )
 
     def _gen_board(self) -> np.ndarray:
+        """Generate a board; prefers solvable boards via backward generator."""
         R, C = self.cfg.rows, self.cfg.cols
-        low, high = self.cfg.values_low, self.cfg.values_high
-        assert 1 <= low <= high <= 9, "values must be between 1 and 9 inclusive"
+        if self.cfg.use_backward_generator:
+            gen_seed = int(self.np_random.integers(0, 1_000_000_000))
+            generator = BackwardBoardGenerator(rows=R, cols=C, seed=gen_seed)
+            board, solution = generator.generate(target_coverage=self.cfg.target_coverage)
+            self._last_solution = solution
+            return board.astype(np.int16, copy=False)
 
+        # Fallback: random board with sum%10 adjusted
+        low, high = 1, 9
         board = self.np_random.integers(low, high + 1, size=(R, C), dtype=np.int16)
-
         if self.cfg.enforce_total_sum_mod_10:
             delta = int((10 - (board.sum() % 10)) % 10)
             tries = 0
@@ -100,18 +135,35 @@ class FruitBoxEnv(gym.Env):
                     board[r, c] += inc
                     delta -= inc
                 tries += 1
-            # solvability is NOT guaranteed; we simply adjust total modulo if possible
         return board
 
-    def _compute_action_mask(self, board: np.ndarray) -> np.ndarray:
-        """
-        Boolean mask of shape (n_actions,):
-        True for rectangles whose sum==10 (zeros are allowed).
-        """
+    def _compute_full_mask(self, board: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute sums and mask for all rectangles."""
         ps_val = self._padded_prefix_sums(board)
         sums = self._rect_sums_vectorized(ps_val)
+        mask = (sums == 10)
+        return sums.astype(np.int32, copy=False), mask
 
-        return (sums == 10)
+    def _update_after_clear(self, r1: int, c1: int, r2: int, c2: int, cleared_vals: np.ndarray):
+        """
+        Incrementally update rectangle sums/mask after setting a region to zero.
+        cleared_vals is the pre-zeroing values of shape (r2-r1+1, c2-c1+1).
+        """
+        R, C = self.cfg.rows, self.cfg.cols
+        deltas: Dict[int, int] = {}
+        for dr, row in enumerate(range(r1, r2 + 1)):
+            base = row * C
+            for dc, col in enumerate(range(c1, c2 + 1)):
+                val = int(cleared_vals[dr, dc])
+                if val == 0:
+                    continue
+                cell_rects = self._cell_to_rects[base + col]
+                for rect_idx in cell_rects:
+                    deltas[rect_idx] = deltas.get(rect_idx, 0) + val
+
+        for rect_idx, delta in deltas.items():
+            self._rect_sums[rect_idx] -= delta
+            self._action_mask[rect_idx] = (self._rect_sums[rect_idx] == 10)
 
     # ---------- Gymnasium API ----------
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None) -> Tuple[np.ndarray, dict]:
@@ -119,8 +171,8 @@ class FruitBoxEnv(gym.Env):
             self.np_random = np.random.default_rng(seed)
         self.steps = 0
         self.board = self._gen_board().astype(np.int16, copy=False)
-        mask = self._compute_action_mask(self.board)
-        info = {"action_mask": mask}
+        self._rect_sums, self._action_mask = self._compute_full_mask(self.board)
+        info = {"action_mask": self._action_mask}
         obs = self.board.clip(0, 9).astype(np.int8, copy=False)
         return obs, info
 
@@ -130,38 +182,49 @@ class FruitBoxEnv(gym.Env):
         truncated = False
         reward = 0.0
 
-        mask = self._compute_action_mask(self.board)
-        if action < 0 or action >= self.n_actions or not mask[action]:
-            # Illegal actions are ignored (no state change, no reward), like UI rejection.
+        # Illegal action: advance time, optional penalty, end if no legal actions remain.
+        if action < 0 or action >= self.n_actions or not self._action_mask[action]:
+            self.steps += 1
+            reward = float(self.cfg.illegal_action_reward)
+            if not self._action_mask.any():
+                terminated = True
+            if self.steps >= self.cfg.max_steps:
+                truncated = True
             obs = self.board.clip(0, 9).astype(np.int8, copy=False)
-            info = {"action_mask": mask, "illegal_action": True}
-            return obs, 0.0, False, False, info
+            info = {"action_mask": self._action_mask, "illegal_action": True}
+            return obs, reward, terminated, truncated, info
 
         r1, c1, r2, c2 = self.rects[action]
-
-        # Count only non-zero cells (actually cleared cells)
         region = self.board[r1 : r2 + 1, c1 : c2 + 1]
-        cells_cleared = int(np.sum(region > 0))
+        cleared_vals = region.copy()
+        cells_total = region.size
+        cells_nonzero = int(np.sum(region > 0))
+        cells_zero = cells_total - cells_nonzero
 
+        # Apply action
         self.board[r1 : r2 + 1, c1 : c2 + 1] = 0
-
-        reward = self.cfg.reward_per_cell * float(cells_cleared)
         self.steps += 1
 
-        # Termination: no valid actions remain OR safety cap reached
-        new_mask = self._compute_action_mask(self.board)
-        if not new_mask.any():
+        reward = (
+            self.cfg.reward_per_cell * float(cells_nonzero)
+            + self.cfg.reward_per_zero_cell * float(cells_zero)
+        )
+
+        # Incremental mask update
+        self._update_after_clear(r1, c1, r2, c2, cleared_vals)
+
+        if not self._action_mask.any():
             terminated = True
         if self.steps >= self.cfg.max_steps:
             truncated = True
 
         obs = self.board.clip(0, 9).astype(np.int8, copy=False)
-        info = {"action_mask": new_mask, "illegal_action": False}
+        info = {"action_mask": self._action_mask, "illegal_action": False}
         return obs, float(reward), terminated, truncated, info
 
     # ---------- helpers ----------
     def legal_actions(self) -> np.ndarray:
-        return np.nonzero(self._compute_action_mask(self.board))[0]
+        return np.nonzero(self._action_mask)[0]
 
     def sample_valid_action(self) -> Optional[int]:
         legal = self.legal_actions()
@@ -188,10 +251,9 @@ class FruitBoxEnv(gym.Env):
 
 # ---- quick smoke test ----
 if __name__ == "__main__":
-    env = FruitBoxEnv(FruitBoxConfig(render_mode="ansi"))
+    env = FruitBoxEnvImproved(FruitBoxImprovedConfig(render_mode="ansi"))
     obs, info = env.reset(seed=0)
     print("Initial legal actions:", len(np.nonzero(info["action_mask"])[0]))
-    done = False
     total = 0.0
     while True:
         mask = info["action_mask"]
