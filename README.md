@@ -21,6 +21,30 @@
 - `experiments/`: 로컬 및 Colab용 학습 스크립트/노트북
 - `checkpoints/`: 학습된 모델 저장 폴더
 
+## 🚀 모델 배포 및 실전 도입
+### 1. ONNX 변환 및 Hugging Face 업로드
+- **ONNX 변환**: 브라우저에서 실행 가능하도록 모델을 변환합니다.
+  ```bash
+  uv run python src/export_onnx.py --model_path checkpoints/model.pth --output_path extension/model.onnx
+  ```
+- **Hugging Face 업로드**: 학습된 가중치와 ONNX 모델을 허브에 공유합니다.
+  ```bash
+  uv run python src/upload_hf.py --repo_id "사용자/리포지토리" --model_path checkpoints/model.pth --onnx_path extension/model.onnx
+  ```
+
+### 2. Chrome Extension (FruitBox Solver)
+실제 [Gamesaien Fruit Box](https://en.gamesaien.com/game/fruit_box/) 사이트에서 모델을 실행하여 해답을 찾아주는 확장 프로그램입니다.
+
+#### 설치 방법:
+1. 브라우저 주소창에 `chrome://extensions/` 입력
+2. '개발자 모드' 활성화
+3. '압축해제된 확장 프로그램을 로드합니다' 클릭 후 프로젝트의 `extension/` 폴더 선택
+4. **중요**: 확장 프로그램 폴더 안에 `model.onnx` 파일과 [onnxruntime-web](https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/onnxruntime.min.js) 라이브러리가 포함되어야 합니다.
+
+#### 사용 방법:
+- 게임 사이트 접속 후 확장 프로그램 팝업에서 **"Find Best Move"** 버튼 클릭
+- 화면에 최적의 사과 박스가 빨간색으로 표시됩니다.
+
 ## 📈 앞으로의 계획
 - **100% 클리어 도전**: 현재의 96% 성과를 넘어 100% 클리어를 위해 더 깊은 신경망(ResNet 등)과 PPO 알고리즘 도입을 검토 중입니다.
 - **JAX/TPU 가속 확대**: 더 빠른 실험을 위해 JAX 기반의 분산 학습 환경을 고도화할 예정입니다.

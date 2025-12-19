@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "AlphaApple Solver",
+  "version": "1.0",
+  "description": "FruitBox game solver using DQN",
+  "permissions": ["activeTab", "scripting"],
+  "content_scripts": [
+    {
+      "matches": ["https://en.gamesaien.com/game/fruit_box/"],
+      "js": ["onnxruntime.min.js", "content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["model.onnx"],
+      "matches": ["https://en.gamesaien.com/game/fruit_box/"]
+    }
+  ]
+}
