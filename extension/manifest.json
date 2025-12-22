@@ -4,9 +4,13 @@
   "version": "1.0",
   "description": "FruitBox game solver using DQN",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://en.gamesaien.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["https://en.gamesaien.com/game/fruit_box/"],
+      "matches": ["https://en.gamesaien.com/*"],
       "js": ["onnxruntime.min.js", "content.js"]
     }
   ],
@@ -20,8 +24,14 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["model.onnx"],
-      "matches": ["https://en.gamesaien.com/game/fruit_box/"]
+      "resources": [
+        "model.onnx",
+        "ort-wasm.wasm",
+        "ort-wasm-simd.wasm",
+        "ort-wasm-simd-threaded.jsep.mjs",
+        "ort-wasm-simd-threaded.jsep.wasm"
+      ],
+      "matches": ["https://en.gamesaien.com/*"]
     }
   ]
 }

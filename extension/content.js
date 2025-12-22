@@ -5,6 +5,12 @@ let rects = [];
 const ROWS = 10;
 const COLS = 17;
 
+// Ensure ORT loads WASM from extension bundle (no threads for compatibility)
+if (typeof ort !== "undefined" && ort.env && ort.env.wasm) {
+    ort.env.wasm.wasmPaths = chrome.runtime.getURL("");
+    ort.env.wasm.numThreads = 1;
+}
+
 // Generate rectangles (must match Python implementation)
 function generateRects() {
     const list = [];
@@ -33,36 +39,29 @@ async function initSession() {
     }
 }
 
-// Scrape board from CreateJS state
+// Fetch board from page context via background script (MAIN world)
 function getBoardState() {
-    // We need to execute this in the page context to access global vars
-    // Content scripts run in isolated worlds.
-    // We can use a custom event or a script injection.
     return new Promise((resolve) => {
-        window.addEventListener('message', function handler(event) {
-            if (event.data.type === 'ALPHAPPLE_BOARD_DATA') {
-                window.removeEventListener('message', handler);
-                resolve(event.data.board);
+        chrome.runtime.sendMessage({ action: "getBoard" }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error("AlphaApple: getBoard failed", chrome.runtime.lastError);
+                resolve(null);
+                return;
             }
+            resolve(response && response.board ? response.board : null);
         });
-
-        const script = document.createElement('script');
-        script.textContent = `
-            (function() {
-                if (window.exportRoot && window.exportRoot.mm && window.exportRoot.mm.mg) {
-                    const apples = window.exportRoot.mm.mg.children;
-                    const board = [];
-                    for (let i = 0; i < 170; i++) {
-                        const a = apples[i];
-                        board.push(a.visible ? a.nu : 0);
-                    }
-                    window.postMessage({ type: 'ALPHAPPLE_BOARD_DATA', board: board }, '*');
-                }
-            })();
-        `;
-        document.head.appendChild(script);
-        script.remove();
     });
+}
+
+async function getBoardStateWithRetry(maxAttempts = 8, delayMs = 200) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const board = await getBoardState();
+        if (board && board.length === 170) {
+            return board;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return null;
 }
 
 // One-hot encoding for the model
@@ -110,37 +109,29 @@ function getActionMask(boardArray) {
 }
 
 // Draw overlay
-function showOverlay(rectIdx) {
-    const [r1, c1, r2, c2] = rects[rectIdx];
-
-    // We need to find the pixel coordinates.
-    // The apples in JS have x,y. We can fetch them.
-    const script = document.createElement('script');
-    script.textContent = `
-        (function() {
-            const apples = window.exportRoot.mm.mg.children;
-            const a1 = apples[${r1 * 17 + c1}];
-            const a2 = apples[${r2 * 17 + c2}];
-            // Send coordinates back
-            window.postMessage({ 
-                type: 'ALPHAPPLE_COORD_DATA', 
-                coords: { x1: a1.x, y1: a1.y, x2: a2.x, y2: a2.y } 
-            }, '*');
-        })();
-    `;
-
-    window.addEventListener('message', function handler(event) {
-        if (event.data.type === 'ALPHAPPLE_COORD_DATA') {
-            window.removeEventListener('message', handler);
-            const { x1, y1, x2, y2 } = event.data.coords;
-            renderBox(x1, y1, x2, y2);
-        }
+async function showOverlay(rectIdx) {
+    const coords = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+            { action: "getCoords", rect: rects[rectIdx] },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("AlphaApple: getCoords failed", chrome.runtime.lastError);
+                    resolve(null);
+                    return;
+                }
+                resolve(response && response.coords ? response.coords : null);
+            }
+        );
     });
-    document.head.appendChild(script);
-    script.remove();
+    if (!coords) {
+        console.log("AlphaApple: Could not read coords from page.");
+        return;
+    }
+    const { x1, y1, x2, y2, cellW, cellH } = coords;
+    renderBox(x1, y1, x2, y2, cellW, cellH);
 }
 
-function renderBox(x1, y1, x2, y2) {
+function renderBox(x1, y1, x2, y2, cellW, cellH) {
     let overlay = document.getElementById('alphapple-overlay');
     if (!overlay) {
         overlay = document.createElement('div');
@@ -156,11 +147,12 @@ function renderBox(x1, y1, x2, y2) {
 
     // Map Canvas coords to Page coords if necessary
     // Assuming canvas is top-left in container
-    const PADDING = 20; // Approx apple radius
-    overlay.style.left = (x1 - PADDING) + 'px';
-    overlay.style.top = (y1 - PADDING) + 'px';
-    overlay.style.width = (x2 - x1 + PADDING * 2) + 'px';
-    overlay.style.height = (y2 - y1 + PADDING * 2) + 'px';
+    const padX = (typeof cellW === "number" && cellW > 0) ? cellW / 2 : 20;
+    const padY = (typeof cellH === "number" && cellH > 0) ? cellH / 2 : 20;
+    overlay.style.left = (x1 - padX) + 'px';
+    overlay.style.top = (y1 - padY) + 'px';
+    overlay.style.width = (x2 - x1 + padX * 2) + 'px';
+    overlay.style.height = (y2 - y1 + padY * 2) + 'px';
 }
 
 // Main Solver Loop
@@ -168,7 +160,11 @@ async function solve() {
     if (!session) await initSession();
     if (!session) return;
 
-    const board = await getBoardState();
+    const board = await getBoardStateWithRetry();
+    if (!board || board.length !== 170) {
+        console.log("AlphaApple: Failed to read board.");
+        return;
+    }
     const inputTensor = preprocess(board);
     const mask = getActionMask(board);
 

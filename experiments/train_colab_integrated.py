@@ -260,12 +260,20 @@ class DQNAgent:
         if self.steps_done % self.target_update == 0: self.target_net.load_state_dict(self.policy_net.state_dict())
         return loss.item()
 
+    def save(self, path: str):
+        torch.save({
+            "policy_net": self.policy_net.state_dict(),
+            "target_net": self.target_net.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+        }, path)
+
 # %% [markdown]
 # ## 4. Training Loop
 # 커리큘럼 학습을 적용한 학습 루프입니다.
 
 # %% [code]
 # Device Selection
+xm = None
 if torch.cuda.is_available():
     device = torch.device("cuda")
     print("Using GPU (CUDA)")
@@ -277,6 +285,25 @@ else:
     except ImportError:
         device = torch.device("cpu")
         print("Using CPU")
+
+# Checkpoint config (Colab-friendly)
+SAVE_INTERVAL = 1000
+SAVE_TO_DRIVE = False
+LOCAL_CHECKPOINT_DIR = "/content/checkpoints"
+DRIVE_CHECKPOINT_DIR = "/content/drive/MyDrive/alphaapple_checkpoints"
+
+def prepare_checkpoint_dir():
+    if SAVE_TO_DRIVE:
+        try:
+            from google.colab import drive
+            drive.mount("/content/drive")
+            return DRIVE_CHECKPOINT_DIR
+        except Exception as e:
+            print(f"Drive mount failed ({e}). Saving to local instead.")
+    return LOCAL_CHECKPOINT_DIR
+
+CHECKPOINT_DIR = prepare_checkpoint_dir()
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 # Config
 EPISODES = 10000
@@ -308,6 +335,11 @@ for eps in pbar:
     rewards.append(total_reward)
     if eps % 10 == 0:
         pbar.set_description(f"Rew: {np.mean(rewards[-10:]):.1f} | Eps: {agent.epsilon:.2f}")
+    if SAVE_INTERVAL > 0 and eps > 0 and eps % SAVE_INTERVAL == 0:
+        agent.save(os.path.join(CHECKPOINT_DIR, f"dqn_colab_eps{eps}.pt"))
+
+# Final checkpoint
+agent.save(os.path.join(CHECKPOINT_DIR, "dqn_colab_final.pt"))
 
 # Plot
 plt.figure(figsize=(10, 4))
