@@ -9,10 +9,17 @@
 - **성능 기록**: 약 10,000 에피소드 학습 결과, 평균 **96% (163.4개)**의 사과를 제거하는 성과를 달성했습니다.
 - **솔루션 보장형 환경**: `BackwardBoardGenerator`를 도입하여 항상 해답이 존재하는 보드에서 학습할 수 있도록 환경을 개선했습니다.
 
+## 🧪 최근 변경 사항 (안정화/일반화 개선)
+- **모델 안정화**: `src/models.py`에 BatchNorm을 추가하여 activation 폭발과 비현실적 Q-value 스케일 문제를 완화했습니다.
+- **환경 일반화**: 보드 생성에 backward/random 혼합 비율(`backward_generator_ratio`)을 도입해 분포 이동을 줄였습니다.
+- **보상 설계**: 미래 가능성(유효 액션 수 변화), 큰 영역 제거, 완전 클리어 보너스를 옵션으로 추가했습니다.
+- **Colab + Drive 학습**: Google Drive에 체크포인트를 저장하는 스크립트 `experiments/train_colab_drive.py`를 추가했습니다.
+- **환경 단일 소스**: 환경 코드는 `envs/fruitbox_env_improved.py`가 기준이며, `envs/fruitbox_env.py`는 호환용 래퍼입니다.
+
 ## 🛠 주요 기능
-- **고성능 환경 (`envs/fruitbox_env.py`)**: Prefix Sum 및 Incremental Action Masking을 적용하여 연산 속도를 극대화했습니다.
+- **고성능 환경 (`envs/fruitbox_env_improved.py`)**: Prefix Sum 및 Incremental Action Masking을 적용하여 연산 속도를 극대화했습니다.
 - **DQN 에이전트 (`src/agent.py`, `src/models.py`)**: 10채널 One-hot 인코딩 입력과 액션 마스킹을 지원하는 CNN 모델입니다.
-- **Colab 최적화**: GPU 및 TPU 가속을 지원하는 통합 학습 노트북(`experiments/train_colab_integrated.ipynb`, `experiments/train_colab_jax.ipynb`)을 제공합니다.
+- **Colab 최적화**: GPU 및 TPU 가속을 지원하는 학습 스크립트/노트북(`experiments/train_colab_drive.py`, `experiments/train_colab_integrated.ipynb`)을 제공합니다.
 - **시각화 도구**: 에이전트의 플레이를 단계별 ASCII 그래픽으로 렌더링하고 전략을 분석할 수 있는 기능을 포함하고 있습니다.
 
 ## 📁 프로젝트 구조
