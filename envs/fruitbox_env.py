@@ -1,11 +1,17 @@
+#%% [markdown]
+# Improved FruitBox environment.
+
+#%%
 """
 Improved FruitBox environment that addresses several issues in the baseline:
 - Optional backward board generation for solvable boards (high coverage).
+- Mixed board generation to reduce distribution shift.
 - Illegal actions advance time and can carry a penalty; episodes end when no legal actions.
 - Incremental action-mask updates so we do not rescan every rectangle on illegal steps.
-- Reward can include zero-valued cells to encourage 0 활용 전략.
+- Reward can include zero-valued cells and structured bonuses.
 """
 
+#%%
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,11 +30,16 @@ class FruitBoxImprovedConfig:
     cols: int = 17
     reward_per_cell: float = 1.0
     reward_per_zero_cell: float = 0.0  # zero-valued cells (cleared apples) give no extra reward
+    reward_future_action_weight: float = 0.0  # bonus per change in valid action count
+    reward_area_bonus_weight: float = 0.0  # bonus per cell above area base
+    reward_area_bonus_base: int = 2  # cells above this base earn area bonus
+    reward_game_cleared_bonus: float = 0.0  # added when board is fully cleared
     illegal_action_reward: float = -1.0
     max_steps: int = 500  # safety cap; original game uses time, not steps
 
     # Board generation
     use_backward_generator: bool = True
+    backward_generator_ratio: float = 1.0
     target_coverage: float = 0.95  # only used when use_backward_generator is True
     enforce_total_sum_mod_10: bool = True  # fallback random generation
 
@@ -51,6 +62,8 @@ class FruitBoxEnvImproved(gym.Env):
 
         R, C = self.cfg.rows, self.cfg.cols
         assert R > 0 and C > 0, "rows and cols must be positive"
+        assert 0.0 <= self.cfg.backward_generator_ratio <= 1.0, "backward_generator_ratio must be in [0, 1]"
+        assert self.cfg.reward_area_bonus_base >= 0, "reward_area_bonus_base must be >= 0"
 
         # Observation: integers 0..9 (0 means empty)
         self.observation_space = spaces.Box(low=0, high=9, shape=(R, C), dtype=np.int8)
@@ -114,7 +127,10 @@ class FruitBoxEnvImproved(gym.Env):
     def _gen_board(self) -> np.ndarray:
         """Generate a board; prefers solvable boards via backward generator."""
         R, C = self.cfg.rows, self.cfg.cols
-        if self.cfg.use_backward_generator:
+        use_backward = self.cfg.use_backward_generator and (
+            self.np_random.random() < self.cfg.backward_generator_ratio
+        )
+        if use_backward:
             gen_seed = int(self.np_random.integers(0, 1_000_000_000))
             generator = BackwardBoardGenerator(rows=R, cols=C, seed=gen_seed)
             board, solution = generator.generate(target_coverage=self.cfg.target_coverage)
@@ -200,6 +216,7 @@ class FruitBoxEnvImproved(gym.Env):
         cells_total = region.size
         cells_nonzero = int(np.sum(region > 0))
         cells_zero = cells_total - cells_nonzero
+        old_valid_actions = int(self._action_mask.sum())
 
         # Apply action
         self.board[r1 : r2 + 1, c1 : c2 + 1] = 0
@@ -212,6 +229,18 @@ class FruitBoxEnvImproved(gym.Env):
 
         # Incremental mask update
         self._update_after_clear(r1, c1, r2, c2, cleared_vals)
+        new_valid_actions = int(self._action_mask.sum())
+        valid_action_delta = new_valid_actions - old_valid_actions
+
+        # Bonus terms to encourage future options and larger clear regions.
+        area_bonus = self.cfg.reward_area_bonus_weight * float(
+            max(0, cells_total - self.cfg.reward_area_bonus_base)
+        )
+        future_bonus = self.cfg.reward_future_action_weight * float(valid_action_delta)
+        cleared_bonus = 0.0
+        if np.count_nonzero(self.board) == 0:
+            cleared_bonus = float(self.cfg.reward_game_cleared_bonus)
+        reward = reward + area_bonus + future_bonus + cleared_bonus
 
         if not self._action_mask.any():
             terminated = True
@@ -219,7 +248,17 @@ class FruitBoxEnvImproved(gym.Env):
             truncated = True
 
         obs = self.board.clip(0, 9).astype(np.int8, copy=False)
-        info = {"action_mask": self._action_mask, "illegal_action": False}
+        info = {
+            "action_mask": self._action_mask,
+            "illegal_action": False,
+            "valid_action_count": new_valid_actions,
+            "valid_action_delta": valid_action_delta,
+            "cells_nonzero": cells_nonzero,
+            "area": cells_total,
+            "area_bonus": float(area_bonus),
+            "future_bonus": float(future_bonus),
+            "cleared_bonus": float(cleared_bonus),
+        }
         return obs, float(reward), terminated, truncated, info
 
     # ---------- helpers ----------
@@ -250,6 +289,7 @@ class FruitBoxEnvImproved(gym.Env):
 
 
 # ---- quick smoke test ----
+#%%
 if __name__ == "__main__":
     env = FruitBoxEnvImproved(FruitBoxImprovedConfig(render_mode="ansi"))
     obs, info = env.reset(seed=0)

@@ -67,6 +67,7 @@ class DQNAgentMPS:
         self.policy_net = FruitBoxDQN(rows, cols, n_actions).to(self.device)
         self.target_net = FruitBoxDQN(rows, cols, n_actions).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
 
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
         self.loss_fn = nn.SmoothL1Loss()
@@ -104,15 +105,23 @@ class DQNAgentMPS:
             ]
             return int(choice.item())
 
+        was_training = self.policy_net.training
+        self.policy_net.eval()
         with torch.inference_mode():
             state_batch = self._one_hot_batch(state)
             q_values = self.policy_net(state_batch).squeeze(0)
             masked_q = q_values.masked_fill(~mask_t, -1e9)
-            return int(torch.argmax(masked_q).item())
+            action = int(torch.argmax(masked_q).item())
+        if was_training:
+            self.policy_net.train()
+        return action
 
     def update(self):
         if len(self.memory) < self.batch_size:
             return None
+
+        self.policy_net.train()
+        self.target_net.eval()
 
         states, actions, rewards, next_states, dones, masks, next_masks = self.memory.sample(
             self.batch_size
@@ -163,6 +172,13 @@ CURRICULUM_GAP = 500
 INITIAL_COVERAGE = 0.3
 TARGET_COVERAGE = 0.95
 SAVE_INTERVAL = 1000
+BACKWARD_RATIO_START = 1.0
+BACKWARD_RATIO_MIN = 0.2
+BACKWARD_RATIO_DECAY_EPISODES = EPISODES
+FUTURE_ACTION_WEIGHT = 0.1
+AREA_BONUS_WEIGHT = 0.5
+AREA_BONUS_BASE = 2
+GAME_CLEARED_BONUS = 50.0
 
 device = get_mps_device()
 print(f"Using device: {device}")
@@ -172,6 +188,11 @@ config = FruitBoxImprovedConfig(
     cols=17,
     use_backward_generator=True,
     target_coverage=INITIAL_COVERAGE,
+    backward_generator_ratio=BACKWARD_RATIO_START,
+    reward_future_action_weight=FUTURE_ACTION_WEIGHT,
+    reward_area_bonus_weight=AREA_BONUS_WEIGHT,
+    reward_area_bonus_base=AREA_BONUS_BASE,
+    reward_game_cleared_bonus=GAME_CLEARED_BONUS,
 )
 env = FruitBoxEnvImproved(config=config)
 
@@ -187,11 +208,20 @@ agent = DQNAgentMPS(
 episode_rewards = []
 losses = []
 coverages = []
+backward_ratios = []
+avg_valid_actions = []
 
 # %% [code]
 # Training loop
 pbar = tqdm(range(EPISODES))
 for episode in pbar:
+    ratio_progress = min(1.0, episode / max(1, BACKWARD_RATIO_DECAY_EPISODES))
+    backward_ratio = max(
+        BACKWARD_RATIO_MIN,
+        BACKWARD_RATIO_START - ratio_progress * (BACKWARD_RATIO_START - BACKWARD_RATIO_MIN),
+    )
+    env.cfg.backward_generator_ratio = backward_ratio
+
     if episode > 0 and episode % CURRICULUM_GAP == 0:
         new_coverage = min(TARGET_COVERAGE, env.cfg.target_coverage + 0.1)
         env.cfg.target_coverage = new_coverage
@@ -201,8 +231,10 @@ for episode in pbar:
     mask = info["action_mask"].copy()
     total_reward = 0
     done = False
+    valid_action_counts = []
 
     while not done:
+        valid_action_counts.append(int(mask.sum()))
         action = agent.select_action(obs, mask, training=True)
         next_obs, reward, terminated, truncated, next_info = env.step(action)
         done = terminated or truncated
@@ -220,6 +252,8 @@ for episode in pbar:
 
     episode_rewards.append(total_reward)
     coverages.append(env.cfg.target_coverage)
+    backward_ratios.append(env.cfg.backward_generator_ratio)
+    avg_valid_actions.append(float(np.mean(valid_action_counts)) if valid_action_counts else 0.0)
 
     if episode % 10 == 0:
         avg_reward = np.mean(episode_rewards[-10:])
@@ -234,18 +268,32 @@ for episode in pbar:
 # ## Training curves
 
 # %% [code]
-plt.figure(figsize=(12, 5))
-plt.subplot(1, 2, 1)
+plt.figure(figsize=(12, 8))
+plt.subplot(2, 2, 1)
 plt.plot(episode_rewards)
 plt.title("Episode Rewards")
 plt.xlabel("Episode")
 plt.ylabel("Total Reward")
 
-plt.subplot(1, 2, 2)
+plt.subplot(2, 2, 2)
 plt.plot(losses)
 plt.title("Training Loss")
 plt.xlabel("Step")
 plt.ylabel("Loss")
+
+plt.subplot(2, 2, 3)
+plt.plot(avg_valid_actions)
+plt.title("Avg Valid Actions")
+plt.xlabel("Episode")
+plt.ylabel("Count")
+
+plt.subplot(2, 2, 4)
+plt.plot(backward_ratios, label="Backward Ratio")
+plt.plot(coverages, label="Target Coverage")
+plt.title("Generation Schedule")
+plt.xlabel("Episode")
+plt.ylabel("Ratio")
+plt.legend()
 plt.show()
 
 # %%

@@ -1,3 +1,7 @@
+#%% [markdown]
+# DQN agent for FruitBox.
+
+#%%
 import random
 import numpy as np
 import torch
@@ -58,6 +62,7 @@ class DQNAgent:
         self.policy_net = FruitBoxDQN(rows, cols, n_actions).to(self.device)
         self.target_net = FruitBoxDQN(rows, cols, n_actions).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
         
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
         self.memory = ReplayBuffer(buffer_size)
@@ -69,6 +74,8 @@ class DQNAgent:
         Input shape: (rows, cols)
         Output shape: (10, rows, cols)
         """
+        assert state.ndim == 2, "state must be (rows, cols)"
+        assert state.shape == (self.rows, self.cols), "state shape mismatch"
         state_tensor = torch.tensor(state, dtype=torch.long, device=self.device)
         one_hot = torch.nn.functional.one_hot(state_tensor, num_classes=10) # (R, C, 10)
         one_hot = one_hot.permute(2, 0, 1).float() # (10, R, C)
@@ -88,17 +95,24 @@ class DQNAgent:
                 return 0 # Should not happen if mask is correct
             return random.choice(legal_indices)
         else:
+            was_training = self.policy_net.training
+            self.policy_net.eval()
             with torch.no_grad():
                 state_v = self._preprocess(state).unsqueeze(0) # (1, 10, R, C)
                 q_values = self.policy_net(state_v).cpu().numpy()[0]
-                
-                # Apply mask: set illegal actions to a very low value
-                masked_q_values = np.where(mask, q_values, -1e9)
-                return int(np.argmax(masked_q_values))
+            if was_training:
+                self.policy_net.train()
+
+            # Apply mask: set illegal actions to a very low value
+            masked_q_values = np.where(mask, q_values, -1e9)
+            return int(np.argmax(masked_q_values))
 
     def update(self):
         if len(self.memory) < self.batch_size:
             return None
+
+        self.policy_net.train()
+        self.target_net.eval()
         
         states, actions, rewards, next_states, dones, masks, next_masks = self.memory.sample(self.batch_size)
         
@@ -152,3 +166,4 @@ class DQNAgent:
         self.policy_net.load_state_dict(checkpoint['policy_net'])
         self.target_net.load_state_dict(checkpoint['target_net'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.target_net.eval()
