@@ -59,40 +59,57 @@ class DuelingDQN(nn.Module):
     FruitBox 최대 보상 ~170 + 보너스를 고려한 범위.
     """
 
-    def __init__(self, rows: int = 10, cols: int = 17, n_actions: int = 8415):
+    def __init__(
+        self,
+        rows: int = 10,
+        cols: int = 17,
+        n_actions: int = 8415,
+        light: bool = True  # 경량 모드 (로컬용)
+    ):
         super().__init__()
         self.rows = rows
         self.cols = cols
         self.n_actions = n_actions
+        self.light = light
 
         # Q-value 범위 제한 (FruitBox 특성상 0~200 정도가 합리적)
         self.q_min = -10.0
         self.q_max = 200.0
 
-        # Feature Extractor: Residual CNN
-        # 채널 확장: 10 -> 64 -> 128 -> 128
-        self.conv_input = nn.Conv2d(10, 64, kernel_size=3, padding=1)
-        self.res_block1 = ResidualBlock(64, 64)
-        self.res_block2 = ResidualBlock(64, 128)
-        self.res_block3 = ResidualBlock(128, 128)
+        if light:
+            # 경량 모델: 32→64→64 (약 7M params)
+            self.conv_input = nn.Conv2d(10, 32, kernel_size=3, padding=1)
+            self.res_block1 = ResidualBlock(32, 32)
+            self.res_block2 = ResidualBlock(32, 64)
+            self.res_block3 = ResidualBlock(64, 64)
+            feat_channels = 64
+            fc_hidden = 256
+        else:
+            # Full 모델: 64→128→128 (약 27M params)
+            self.conv_input = nn.Conv2d(10, 64, kernel_size=3, padding=1)
+            self.res_block1 = ResidualBlock(64, 64)
+            self.res_block2 = ResidualBlock(64, 128)
+            self.res_block3 = ResidualBlock(128, 128)
+            feat_channels = 128
+            fc_hidden = 512
 
-        flat_size = 128 * rows * cols
+        flat_size = feat_channels * rows * cols
 
         # Dueling Streams
         # Value Stream: 상태의 가치 (scalar)
         self.value_stream = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(flat_size, 512),
+            nn.Linear(flat_size, fc_hidden),
             nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(fc_hidden, 1)
         )
 
         # Advantage Stream: 각 행동의 상대적 이점
         self.advantage_stream = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(flat_size, 512),
+            nn.Linear(flat_size, fc_hidden),
             nn.ReLU(),
-            nn.Linear(512, n_actions)
+            nn.Linear(fc_hidden, n_actions)
         )
 
         # Weight initialization

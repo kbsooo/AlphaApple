@@ -79,8 +79,13 @@ class TrainingConfig:
     rows: int = 10
     cols: int = 17
 
+    # 모델 (경량화)
+    light: bool = True  # 경량 모델 사용
+    update_every: int = 4  # N스텝마다 업데이트
+    use_per: bool = False  # Uniform buffer (PER보다 빠름)
+
     # 학습
-    total_episodes: int = 10000
+    total_episodes: int = 5000  # 로컬용 줄임
     batch_size: int = 128
     learning_rate: float = 3e-4
     gamma: float = 0.99
@@ -91,18 +96,18 @@ class TrainingConfig:
     # Epsilon-greedy
     epsilon_start: float = 1.0
     epsilon_end: float = 0.01
-    epsilon_decay_frames: int = 100000
+    epsilon_decay_frames: int = 50000  # 빠른 decay
 
-    # PER
+    # Buffer
+    buffer_size: int = 50000  # 절반으로 줄임
     per_alpha: float = 0.6
     per_beta_start: float = 0.4
-    per_beta_frames: int = 200000
-    buffer_size: int = 100000
+    per_beta_frames: int = 100000
 
     # 커리큘럼
     initial_coverage: float = 0.3
     target_coverage: float = 0.95
-    curriculum_episodes: int = 5000
+    curriculum_episodes: int = 3000  # 빠른 커리큘럼
     backward_ratio_start: float = 0.8
     backward_ratio_end: float = 0.3
 
@@ -116,8 +121,8 @@ class TrainingConfig:
 
     # 로깅
     log_interval: int = 10
-    save_interval: int = 1000
-    eval_interval: int = 500
+    save_interval: int = 500  # 더 자주 저장
+    eval_interval: int = 250  # 더 자주 평가
     eval_episodes: int = 10
 
     # 시드
@@ -214,9 +219,11 @@ def train(config: TrainingConfig):
         rows=config.rows,
         cols=config.cols,
         n_actions=env.n_actions,
+        light=config.light,
         lr=config.learning_rate,
         gamma=config.gamma,
         tau=config.tau,
+        update_every=config.update_every,
         epsilon_start=config.epsilon_start,
         epsilon_end=config.epsilon_end,
         epsilon_decay_frames=config.epsilon_decay_frames,
@@ -225,12 +232,16 @@ def train(config: TrainingConfig):
         per_alpha=config.per_alpha,
         per_beta_start=config.per_beta_start,
         per_beta_frames=config.per_beta_frames,
+        use_per=config.use_per,
         normalize_rewards=config.normalize_rewards,
         reward_clip=config.reward_clip,
     )
     agent = DoubleDQNAgent(agent_config)
     print(f"Device: {agent.device}")
+    print(f"Model: {'Light' if config.light else 'Full'}")
     print(f"Model parameters: {sum(p.numel() for p in agent.policy_net.parameters()):,}")
+    print(f"Update every: {config.update_every} steps")
+    print(f"Buffer: {'PER' if config.use_per else 'Uniform'} ({config.buffer_size:,})")
 
     # CUDA 최적화
     if agent.device.type == "cuda":
@@ -402,21 +413,17 @@ def plot_results(results: dict, save_path: Optional[str] = None):
 
 #%% [code]
 if __name__ == "__main__":
-    config = TrainingConfig(
-        total_episodes=10000,
-        save_interval=1000,
-        eval_interval=500,
-    )
+    # 로컬 최적화 설정 (기본값 사용)
+    config = TrainingConfig()
 
     print("=" * 60)
-    print("FruitBox RL v2 - Dueling Double DQN Training")
+    print("FruitBox RL v2 - Dueling Double DQN (Light)")
     print("=" * 60)
+    print(f"Mode: {'Light (로컬)' if config.light else 'Full (Colab)'}")
     print(f"Episodes: {config.total_episodes}")
-    print(f"Batch size: {config.batch_size}")
-    print(f"Learning rate: {config.learning_rate}")
-    print(f"Buffer size: {config.buffer_size}")
-    print(f"Curriculum: coverage {config.initial_coverage} -> {config.target_coverage}")
-    print(f"Backward ratio: {config.backward_ratio_start} -> {config.backward_ratio_end}")
+    print(f"Update every: {config.update_every} steps")
+    print(f"Buffer: {'PER' if config.use_per else 'Uniform'} ({config.buffer_size:,})")
+    print(f"Curriculum: {config.initial_coverage} -> {config.target_coverage}")
     print("=" * 60)
 
     agent, results = train(config)

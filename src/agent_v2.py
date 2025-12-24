@@ -29,10 +29,14 @@ class AgentConfig:
     cols: int = 17
     n_actions: int = 8415
 
+    # 모델
+    light: bool = True  # 경량 모드 (로컬용)
+
     # 학습 파라미터
     lr: float = 3e-4
     gamma: float = 0.99
     tau: float = 0.005  # Soft update coefficient
+    update_every: int = 4  # N스텝마다 업데이트 (1=매 스텝)
 
     # Epsilon-greedy
     epsilon_start: float = 1.0
@@ -40,11 +44,12 @@ class AgentConfig:
     epsilon_decay_frames: int = 50000
 
     # 버퍼
-    buffer_size: int = 100000
+    buffer_size: int = 50000  # 경량: 50K (기존 100K)
     batch_size: int = 128
     per_alpha: float = 0.6
     per_beta_start: float = 0.4
     per_beta_frames: int = 100000
+    use_per: bool = True  # PER 사용 여부 (False면 Uniform)
 
     # 보상 정규화
     normalize_rewards: bool = True
@@ -69,17 +74,19 @@ class DoubleDQNAgent:
         self.cfg = config or AgentConfig()
         self.device = get_device()
 
-        # Networks
+        # Networks (light 모드 지원)
         self.policy_net = DuelingDQN(
             rows=self.cfg.rows,
             cols=self.cfg.cols,
-            n_actions=self.cfg.n_actions
+            n_actions=self.cfg.n_actions,
+            light=self.cfg.light
         ).to(self.device)
 
         self.target_net = DuelingDQN(
             rows=self.cfg.rows,
             cols=self.cfg.cols,
-            n_actions=self.cfg.n_actions
+            n_actions=self.cfg.n_actions,
+            light=self.cfg.light
         ).to(self.device)
 
         # Target network 초기화
@@ -93,13 +100,17 @@ class DoubleDQNAgent:
             weight_decay=1e-5
         )
 
-        # Replay buffer
-        self.memory = PrioritizedReplayBuffer(
-            capacity=self.cfg.buffer_size,
-            alpha=self.cfg.per_alpha,
-            beta_start=self.cfg.per_beta_start,
-            beta_frames=self.cfg.per_beta_frames
-        )
+        # Replay buffer (PER or Uniform)
+        if self.cfg.use_per:
+            self.memory = PrioritizedReplayBuffer(
+                capacity=self.cfg.buffer_size,
+                alpha=self.cfg.per_alpha,
+                beta_start=self.cfg.per_beta_start,
+                beta_frames=self.cfg.per_beta_frames
+            )
+        else:
+            from src.replay_buffer import SimpleReplayBuffer
+            self.memory = SimpleReplayBuffer(capacity=self.cfg.buffer_size)
 
         # Reward normalizer
         self.reward_normalizer = RewardNormalizer(
@@ -199,21 +210,30 @@ class DoubleDQNAgent:
         Perform one step of training.
 
         Returns:
-            (loss, td_errors, (q_mean, target_mean)) or None if buffer too small
+            (loss, td_errors, (q_mean, target_mean)) or None if buffer too small or not update step
         """
         if len(self.memory) < self.cfg.batch_size:
             return None
 
+        # N스텝마다 업데이트 (경량화)
         self.train_step += 1
+        if self.train_step % self.cfg.update_every != 0:
+            return None
+
         self.policy_net.train()
         self.target_net.eval()
 
-        # Sample from PER
-        samples, indices, weights = self.memory.sample(
-            self.cfg.batch_size,
-            self.frame_idx
-        )
-        weights = weights.to(self.device)
+        # Sample from buffer (PER or Uniform)
+        if self.cfg.use_per:
+            samples, indices, weights = self.memory.sample(
+                self.cfg.batch_size,
+                self.frame_idx
+            )
+            weights = weights.to(self.device)
+        else:
+            samples = self.memory.sample(self.cfg.batch_size)
+            indices = None
+            weights = torch.ones(self.cfg.batch_size, device=self.device)
 
         # Unpack samples
         states, actions, rewards, next_states, dones, masks, next_masks = zip(*samples)
@@ -263,8 +283,9 @@ class DoubleDQNAgent:
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
         self.optimizer.step()
 
-        # Update PER priorities
-        self.memory.update_priorities(indices, np.abs(td_errors) + 1e-6)
+        # Update PER priorities (only if using PER)
+        if self.cfg.use_per and indices is not None:
+            self.memory.update_priorities(indices, np.abs(td_errors) + 1e-6)
 
         # Soft update target network
         self._soft_update()
