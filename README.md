@@ -9,7 +9,43 @@
 - **성능 기록**: 약 10,000 에피소드 학습 결과, 평균 **96% (163.4개)**의 사과를 제거하는 성과를 달성했습니다.
 - **솔루션 보장형 환경**: `BackwardBoardGenerator`를 도입하여 항상 해답이 존재하는 보드에서 학습할 수 있도록 환경을 개선했습니다.
 
-## 🧪 최근 변경 사항 (안정화/일반화 개선)
+## 🧪 v2 아키텍처 (2024-12)
+
+기존 DQN의 Q-value 폭발 문제를 해결한 새로운 아키텍처입니다.
+
+### 핵심 개선
+| 문제 | 기존 | v2 |
+|------|------|-----|
+| Q-value 범위 | [-10억, +1억] | **[-10, 200]** |
+| 알고리즘 | Vanilla DQN | **Dueling Double DQN** |
+| Target 업데이트 | Hard (1000 steps) | **Soft (tau=0.005)** |
+| 경험 재생 | Uniform | **PER (Prioritized)** |
+| 보드 생성 | 작은 숫자 편향 | **균등 분포** |
+
+### v2 파일 구조
+```
+src/
+├── models_v2.py         # Dueling DQN + Residual + Q-value clipping
+├── agent_v2.py          # Double DQN + Soft Update + PER
+├── replay_buffer.py     # Prioritized Experience Replay
+└── reward_normalizer.py # 보상 정규화
+
+envs/
+└── board_generator_v2.py  # 균등 분포 + 유효성 검증
+
+experiments/
+└── train_v2.py          # Colab용 통합 학습 스크립트
+```
+
+### 학습 실행 (Colab)
+```bash
+# Colab에서 직접 실행하거나
+uv run python experiments/train_v2.py
+```
+
+---
+
+## 🧪 이전 변경 사항
 - **모델 안정화**: `src/models.py`에 BatchNorm을 추가하여 activation 폭발과 비현실적 Q-value 스케일 문제를 완화했습니다.
 - **환경 일반화**: 보드 생성에 backward/random 혼합 비율(`backward_generator_ratio`)을 도입해 분포 이동을 줄였습니다.
 - **보상 설계**: 미래 가능성(유효 액션 수 변화), 큰 영역 제거, 완전 클리어 보너스를 옵션으로 추가했습니다.
